@@ -24,7 +24,7 @@ in your code. Everithing is a single file.
 Features
 ----------
 
-The main feature of this implementation is the ability to serialize TLS context, via tls_export_context and re-import it, via tls_import_context in another pre-forked worker process (socket may be sent via sendmsg).
+The main feature of this implementation is the ability to serialize TLS context, via tls_export_context and re-import it, via tls_import_context in another pre-forked worker process (socket descriptor may be sent via sendmsg).
 
 For now it supports only TLS 1.2, RSA + (AES128_CBC, AES_256_CBC, SHA1, SHA256). 
 
@@ -32,7 +32,7 @@ It has a low level interface, efficient for non-blocking, asynchronous sockets, 
 
 It implements all what is needed for the TLS protocol version 1.2 and a pem/der parser. From tomcrypt it uses RSA and AES(CBC) encryption/decryption, SHA1, SHA256 and HMAC functions.
 
-This library was written to be used by my other projects [Concept Application Server](https://github.com/Devronium/ConceptApplicationServer "Concept Application Server") and [Concept Native Client](https://github.com/Devronium/ConceptClientQT "Concept Client QT")
+This library was written to be used by my other projects [Concept Applications Server](https://github.com/Devronium/ConceptApplicationServer "Concept Application Server") and [Concept Native Client](https://github.com/Devronium/ConceptClientQT "Concept Client QT")
 
 Examples
 ----------
