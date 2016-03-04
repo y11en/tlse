@@ -5,14 +5,21 @@ Single C file TLS 1.2 implementation, using [libtomcrypt](https://github.com/lib
 Compiling:
 ----------
 
-    `$ gcc tlshello.c -o tlshello -ltomcrypt`
+`$ gcc tlshello.c -o tlshello -ltomcrypt`  
 
 For debuging tls connections, the DEBUG flag must be set:
 
-    `$ gcc tlsserverhello.c -o tlshello -ltomcrypt`
+`$ gcc tlsserverhello.c -o tlshello -ltomcrypt`  
 
 
 The entire library is a single c file that you just include in your source.
+
+Usage
+----------
+
+You just 
+`#include "tlslayer.c"`
+in your code. Everithing is a single file.
 
 Features
 ----------
