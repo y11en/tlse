@@ -1,6 +1,6 @@
 # TLSLayer
 
-Single C file TLS 1.2 implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issure.
+Single C file TLS 1.2 implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
 
 Compiling:
 ----------
