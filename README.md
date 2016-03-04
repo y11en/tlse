@@ -9,7 +9,7 @@ Compiling
 
 For debuging tls connections, the DEBUG flag must be set:
 
-`$ gcc tlsserverhello.c -o tlshello -ltomcrypt`  
+`$ gcc tlsserverhello.c -o tlsserverhello -ltomcrypt`  
 
 
 The entire library is a single c file that you just include in your source.
