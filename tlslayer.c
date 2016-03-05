@@ -118,26 +118,8 @@ POSSIBILITY OF SUCH DAMAGE.
 #define TLS_RSA_WITH_AES_256_CBC_SHA          0x0035
 #define TLS_RSA_WITH_AES_128_CBC_SHA256       0x003C
 #define TLS_RSA_WITH_AES_256_CBC_SHA256       0x003D
+#define TLS_RSA_WITH_AES_128_GCM_SHA256       0x009C
 
-/* ===================================================
-#define TLS_RSA_WITH_RC4_128_SHA                0x0005
-#define TLS_RSA_WITH_3DES_EDE_CBC_SHA           0x000a
-#define TLS_RSA_WITH_AES_128_CBC_SHA            0x002f
-#define TLS_RSA_WITH_AES_256_CBC_SHA            0x0035
-#define TLS_RSA_WITH_AES_128_GCM_SHA256         0x009c
-#define TLS_RSA_WITH_AES_256_GCM_SHA384         0x009d
-#define TLS_ECDHE_ECDSA_WITH_RC4_128_SHA        0xc007
-#define TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA    0xc009
-#define TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA    0xc00a
-#define TLS_ECDHE_RSA_WITH_RC4_128_SHA          0xc011
-#define TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA     0xc012
-#define TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA      0xc013
-#define TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA      0xc014
-#define TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256   0xc02f
-#define TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256 0xc02b
-#define TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384   0xc030
-#define TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 0xc02c
-=================================================== */
 
 #define TLS_UNSUPPORTED_ALGORITHM   0x00
 #define TLS_RSA_SIGN_RSA            0x01
@@ -171,6 +153,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #define VERSION_SUPPORTED(version, err)  if (version < 0x300) return err;
 #define CHECK_SIZE(size, buf_size, err)  if ((size > buf_size) || (buf_size < 0)) return err;
 #define TLS_IMPORT_CHECK_SIZE(buf_pos, size, buf_size) if ((size > buf_size - buf_pos) || (buf_pos > buf_size)) { DEBUG_PRINT("IMPORT ELEMENT SIZE ERROR\n"); tls_destroy_context(context); return NULL; }
+
 enum {
     KEA_dhe_dss,
     KEA_dhe_rsa,
@@ -273,7 +256,7 @@ typedef struct {
     unsigned char *premaster_key;
     unsigned int premaster_key_len;
     unsigned char cipher_spec_set;
-    TLSCipher cbc;
+    TLSCipher crypto;
     TLSHash handshake_hash;
 
     unsigned char *message_buffer;
@@ -540,6 +523,7 @@ int __private_tls_key_length(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_RSA_WITH_AES_128_GCM_SHA256:
             return 16;
         case TLS_RSA_WITH_AES_256_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
@@ -555,6 +539,7 @@ unsigned int __private_tls_mac_length(TLSContext *context) {
             return __TLS_SHA1_MAC_SIZE;
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_RSA_WITH_AES_128_GCM_SHA256:
             return __TLS_SHA256_MAC_SIZE;
     }
     return 0;
@@ -590,14 +575,14 @@ int __private_tls_expand_key(TLSContext *context) {
     int iv_length = __TLS_AES_IV_LENGTH;
     int pos = 0;
     if (context->is_server) {
-        memcpy(context->cbc.remote_mac, &key[pos], mac_length);
+        memcpy(context->crypto.remote_mac, &key[pos], mac_length);
         pos += mac_length;
-        memcpy(context->cbc.local_mac, &key[pos], mac_length);
+        memcpy(context->crypto.local_mac, &key[pos], mac_length);
         pos += mac_length;
     } else {
-        memcpy(context->cbc.local_mac, &key[pos], mac_length);
+        memcpy(context->crypto.local_mac, &key[pos], mac_length);
         pos += mac_length;
-        memcpy(context->cbc.remote_mac, &key[pos], mac_length);
+        memcpy(context->crypto.remote_mac, &key[pos], mac_length);
         pos += mac_length;
     }
     
@@ -613,33 +598,18 @@ int __private_tls_expand_key(TLSContext *context) {
     DEBUG_PRINT("EXPANSION %i/%i\n", (int)pos, (int)__TLS_MAX_KEY_EXPANSION_SIZE);
     DEBUG_DUMP_HEX_LABEL("CLIENT KEY", clientkey, key_length)
     DEBUG_DUMP_HEX_LABEL("CLIENT IV", clientiv, iv_length)
-    DEBUG_DUMP_HEX_LABEL("CLIENT MAC KEY", context->is_server ? context->cbc.remote_mac : context->cbc.local_mac, mac_length)
+    DEBUG_DUMP_HEX_LABEL("CLIENT MAC KEY", context->is_server ? context->crypto.remote_mac : context->crypto.local_mac, mac_length)
     DEBUG_DUMP_HEX_LABEL("SERVER KEY", serverkey, key_length)
     DEBUG_DUMP_HEX_LABEL("SERVER IV", serveriv, iv_length)
-    DEBUG_DUMP_HEX_LABEL("SERVER MAC KEY", context->is_server ? context->cbc.local_mac : context->cbc.remote_mac, mac_length)
+    DEBUG_DUMP_HEX_LABEL("SERVER MAC KEY", context->is_server ? context->crypto.local_mac : context->crypto.remote_mac, mac_length)
 
-    symmetric_CBC *client_aes;
-    symmetric_CBC *server_aes;
-    
-    if (context->cbc.created) {
-        cbc_done(&context->cbc.aes_remote);
-        cbc_done(&context->cbc.aes_local);
-    }
     if (context->is_server) {
-        client_aes = &context->cbc.aes_remote;
-        server_aes = &context->cbc.aes_local;
+        if (__private_tls_crypto_create(context, key_length, iv_length, serverkey, serveriv, clientkey, clientiv))
+            return 0;
     } else {
-        client_aes = &context->cbc.aes_local;
-        server_aes = &context->cbc.aes_remote;
+        if (__private_tls_crypto_create(context, key_length, iv_length, clientkey, clientiv, serverkey, serveriv))
+            return 0;
     }
-    int cipherID = find_cipher("rijndael");
-    DEBUG_PRINT("Using cipher ID: %i\n", cipherID);
-    int res1 = cbc_start(cipherID, clientiv, clientkey, key_length, 0, client_aes);
-    int res2 = cbc_start(cipherID, serveriv, serverkey, key_length, 0, server_aes);
-
-    if ((res1) || (res2))
-        return 0;
-    context->cbc.created = 1;
 
     if (context->exportable) {
         TLS_FREE(context->exportable_keys);
@@ -1052,6 +1022,46 @@ void tls_destroy_packet(TLSPacket *packet) {
     }
 }
 
+int __private_tls_crypto_create(TLSContext *context, int key_length, int iv_length, unsigned char *localkey, unsigned char *localiv, unsigned char *remotekey, unsigned char *remoteiv) {
+    if (context->crypto.created) {
+        cbc_done(&context->crypto.aes_remote);
+        cbc_done(&context->crypto.aes_local);
+        context->crypto.created = 0;
+    }
+
+    int cipherID = find_cipher("rijndael");
+    DEBUG_PRINT("Using cipher ID: %i\n", cipherID);
+    int res1 = cbc_start(cipherID, localiv, localkey, key_length, 0, &context->crypto.aes_local);
+    int res2 = cbc_start(cipherID, remoteiv, remotekey, key_length, 0, &context->crypto.aes_remote);
+
+    if ((res1) || (res2))
+        return TLS_GENERIC_ERROR;
+    context->crypto.created = 1;
+    return 0;
+}
+
+int __private_tls_crypto_encrypt(TLSContext *context, const unsigned char *buf, unsigned char *ct, unsigned int len) {
+    if (context->crypto.created)
+        return cbc_encrypt(buf, ct, len, &context->crypto.aes_local);
+    memset(ct, 0, len);
+    return TLS_GENERIC_ERROR;
+}
+
+int __private_tls_crypto_decrypt(TLSContext *context, const unsigned char *buf, unsigned char *pt, unsigned int len) {
+    if (context->crypto.created)
+        return cbc_decrypt(buf, pt, len, &context->crypto.aes_remote);
+    memset(pt, 0, len);
+    return TLS_GENERIC_ERROR;
+}
+
+void __private_tls_crypto_done(TLSContext *context) {
+    if (context->crypto.created) {
+        cbc_done(&context->crypto.aes_remote);
+        cbc_done(&context->crypto.aes_local);
+        context->crypto.created = 0;
+    }
+}
+
 void tls_packet_update(TLSPacket *packet) {
     if ((packet) && (!packet->broken)) {
         *(unsigned short *)&packet->buf[3] = htons(packet->len - 5);
@@ -1060,7 +1070,7 @@ void tls_packet_update(TLSPacket *packet) {
                 if ((packet->buf[0] == TLS_HANDSHAKE) && (packet->len > 5) && (packet->buf[5] != 0x00))
                     __private_tls_update_hash(&packet->context->handshake_hash, packet->buf + 5, packet->len - 5);
 
-                if ((packet->context->cipher_spec_set) && (packet->context->cbc.created)) {
+                if ((packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
                     int block_size = 16;
                     if (packet->context->cipher == TLS_RSA_WITH_AES_256_CBC_SHA)
                         block_size = 32;
@@ -1089,7 +1099,7 @@ void tls_packet_update(TLSPacket *packet) {
                             buf_pos += padding;
 
                             //DEBUG_DUMP_HEX_LABEL("PT BUFFER", buf, length);
-                            int res = cbc_encrypt(buf, ct + 5, length, &packet->context->cbc.aes_local);
+                            __private_tls_crypto_encrypt(packet->context, buf, ct + 5, length);
                             TLS_FREE(packet->buf);
                             packet->buf = ct;
                             packet->len = length + 5;
@@ -1356,6 +1366,7 @@ TLSContext *tls_accept(TLSContext *context) {
         child->certificates = context->certificates;
         child->certificates_count = context->certificates_count;
         child->private_key = context->private_key;
+        child->exportable = context->exportable;
     }
     return child;
 }
@@ -1374,10 +1385,8 @@ void tls_destroy_context(TLSContext *context) {
     }
     TLS_FREE(context->master_key);
     TLS_FREE(context->premaster_key);
-    if (context->cbc.created) {
-        cbc_done(&context->cbc.aes_remote);
-        cbc_done(&context->cbc.aes_local);
-    }
+    if (context->crypto.created)
+        __private_tls_crypto_done(context);
     TLS_FREE(context->message_buffer);
     __private_tls_done_hash(&context->handshake_hash, NULL);
     TLS_FREE(context->tls_buffer);
@@ -1420,6 +1429,8 @@ const char *tls_cipher_name(TLSContext *context) {
                 return "AES128CBC-SHA256";
             case TLS_RSA_WITH_AES_256_CBC_SHA256:
                 return "AES256CBC-SHA256";
+            case TLS_RSA_WITH_AES_128_GCM_SHA256:
+                return "AES128GCM-SHA256";
     }
     return "UNKNOWN";
 }
@@ -2103,7 +2114,7 @@ unsigned int __private_tls_hmac_message(unsigned char local, TLSContext *context
     else
         hash_idx = find_hash("sha256");
 
-    if (hmac_init(&hash, hash_idx, local ? context->cbc.local_mac : context->cbc.remote_mac, mac_size))
+    if (hmac_init(&hash, hash_idx, local ? context->crypto.local_mac : context->crypto.remote_mac, mac_size))
         return 0;
 
     uint64_t squence_number = local ? htonll(context->local_sequence_number) : htonll(context->remote_sequence_number);
@@ -2139,7 +2150,7 @@ int tls_parse_message(TLSContext *context, const unsigned char *buf, int buf_len
     DEBUG_PRINT("Message type: %0x, length: %i\n", (int)type, (int)length);
     if (context->cipher_spec_set) {
         DEBUG_DUMP_HEX_LABEL("encrypted", &buf[5], length);
-        if (!context->cbc.created) {
+        if (!context->crypto.created) {
             DEBUG_PRINT("Encryption context not created\n");
             return TLS_BROKEN_PACKET;
         }
@@ -2148,7 +2159,7 @@ int tls_parse_message(TLSContext *context, const unsigned char *buf, int buf_len
             DEBUG_PRINT("Error in TLS_MALLOC (%i bytes)\n", (int)length);
             return TLS_NO_MEMORY;
         }
-        int err = cbc_decrypt(buf + 5, pt, length, &context->cbc.aes_remote);
+        int err = __private_tls_crypto_decrypt(context, buf + 5, pt, length);
         if (err) {
             DEBUG_PRINT("Decryption error %i\n", (int)err);
             return TLS_BROKEN_PACKET;
@@ -2835,7 +2846,7 @@ void tls_make_exportable(TLSContext *context, unsigned char exportable_flag) {
 
 int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int buf_len) {
     // only negotiated AND exportable connections may be exported
-    if ((!context) || (context->critical_error) || (context->connection_status != 0xFF) || (!context->exportable) || (!context->exportable_keys) || (!context->exportable_size)) {
+    if ((!context) || (context->critical_error) || (context->connection_status != 0xFF) || (!context->exportable) || (!context->exportable_keys) || (!context->exportable_size) || (!context->crypto.created)) {
         DEBUG_PRINT("CANNOT EXPORT CONTEXT %i\n", (int)context->connection_status);
         return 0;
     }
@@ -2856,20 +2867,20 @@ int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int 
     unsigned char iv[__TLS_AES_IV_LENGTH];
     unsigned long len = __TLS_AES_IV_LENGTH;
     memset(iv, 0, __TLS_AES_IV_LENGTH);
-    cbc_getiv(iv, &len, &context->cbc.aes_local);
+    cbc_getiv(iv, &len, &context->crypto.aes_local);
     tls_packet_uint8(packet, __TLS_AES_IV_LENGTH);
     tls_packet_append(packet, iv, len);
 
     memset(iv, 0, __TLS_AES_IV_LENGTH);
-    cbc_getiv(iv, &len, &context->cbc.aes_remote);
+    cbc_getiv(iv, &len, &context->crypto.aes_remote);
     tls_packet_append(packet, iv, __TLS_AES_IV_LENGTH);
 
     tls_packet_uint8(packet, context->exportable_size);
     tls_packet_append(packet, context->exportable_keys, context->exportable_size);
 
     tls_packet_uint8(packet, mac_length);
-    tls_packet_append(packet, context->cbc.local_mac, mac_length);
-    tls_packet_append(packet, context->cbc.remote_mac, mac_length);
+    tls_packet_append(packet, context->crypto.local_mac, mac_length);
+    tls_packet_append(packet, context->crypto.remote_mac, mac_length);
 
     tls_packet_uint16(packet, context->master_key_len);
     tls_packet_append(packet, context->master_key, context->master_key_len);
@@ -2947,17 +2958,12 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         memcpy(temp, &buffer[buf_pos], key_lengths);
         buf_pos += key_lengths;
 
-        int cipherID = find_cipher("rijndael");
-        int res1 = cbc_start(cipherID, local_iv, temp, key_lengths / 2, 0, &context->cbc.aes_local);
-        int res2 = cbc_start(cipherID, remote_iv, temp + key_lengths / 2, key_lengths / 2, 0, &context->cbc.aes_remote);
-
-        if ((res1) || (res2)) {
+        if (__private_tls_crypto_create(context, key_lengths / 2, iv_len, temp, local_iv, temp + key_lengths / 2, remote_iv)) {
             DEBUG_PRINT("ERROR CREATING KEY CONTEXT\n");
             tls_destroy_context(context);
-            return 0;
+            return NULL;
         }
         memset(temp, 0, sizeof(temp));
-        context->cbc.created = 1;
 
         unsigned char mac_length = buffer[buf_pos++];
         if ((!mac_length) || (mac_length > __TLS_SHA256_MAC_SIZE)) {
@@ -2967,11 +2973,11 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         }
 
         TLS_IMPORT_CHECK_SIZE(buf_pos, mac_length, buf_len)
-        memcpy(context->cbc.local_mac, &buffer[buf_pos], mac_length);
+        memcpy(context->crypto.local_mac, &buffer[buf_pos], mac_length);
         buf_pos += mac_length;
 
         TLS_IMPORT_CHECK_SIZE(buf_pos, mac_length, buf_len)
-        memcpy(context->cbc.remote_mac, &buffer[buf_pos], mac_length);
+        memcpy(context->crypto.remote_mac, &buffer[buf_pos], mac_length);
         buf_pos += mac_length;
 
         TLS_IMPORT_CHECK_SIZE(buf_pos, 2, buf_len)
