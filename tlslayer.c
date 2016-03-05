@@ -40,7 +40,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "tomcrypt/tomcrypt.h"
 
-//#define DEBUG
+#define DEBUG
 
 #define SSL_COMPATIBLE_INTERFACE
 
@@ -108,18 +108,17 @@ POSSIBILITY OF SUCH DAMAGE.
 #define __TLS_MAX_MAC_SIZE          __TLS_SHA256_MAC_SIZE
 #define __TLS_MAX_KEY_EXPANSION_SIZE 192 // 160
 #define __TLS_AES_IV_LENGTH         16
+#define __TLS_AES_GCM_IV_LENGTH     12
 #define __TLS_MIN_FINISHED_OPAQUE_LEN 12
 
 #define __TLS_BLOB_INCREMENT        0xFFF
 #define __TLS_ASN1_MAXLEVEL         0xFF
-
 
 #define TLS_RSA_WITH_AES_128_CBC_SHA          0x002F
 #define TLS_RSA_WITH_AES_256_CBC_SHA          0x0035
 #define TLS_RSA_WITH_AES_128_CBC_SHA256       0x003C
 #define TLS_RSA_WITH_AES_256_CBC_SHA256       0x003D
 #define TLS_RSA_WITH_AES_128_GCM_SHA256       0x009C
-
 
 #define TLS_UNSUPPORTED_ALGORITHM   0x00
 #define TLS_RSA_SIGN_RSA            0x01
@@ -228,8 +227,14 @@ typedef struct {
 } TLSCertificate;
 
 typedef struct {
-    symmetric_CBC aes_local;
-    symmetric_CBC aes_remote;
+    union {
+        symmetric_CBC aes_local;
+        gcm_state aes_gcm_local;
+    };
+    union {
+        symmetric_CBC aes_remote;
+        gcm_state aes_gcm_remote;
+    };
     unsigned char local_mac[__TLS_SHA256_MAC_SIZE];
     unsigned char remote_mac[__TLS_SHA256_MAC_SIZE];
     unsigned char created;
@@ -412,7 +417,8 @@ void init_dependencies() {
     register_prng(&sprng_desc);
     register_hash(&sha256_desc);
     register_hash(&sha1_desc);
-    register_cipher(&rijndael_desc);
+    //register_cipher(&rijndael_desc);
+    register_cipher(&aes_desc);
 }
 
 unsigned char *__private_tls_decrypt_rsa(TLSContext *context, const unsigned char *buffer, unsigned int len, unsigned int *size) {
@@ -532,6 +538,14 @@ int __private_tls_key_length(TLSContext *context) {
     return 0;
 }
 
+int __private_tls_is_gcm(TLSContext *context) {
+   switch (context->cipher) {
+        case TLS_RSA_WITH_AES_128_GCM_SHA256:
+            return 1;
+    }
+    return 0;
+}
+
 unsigned int __private_tls_mac_length(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_CBC_SHA:
@@ -573,17 +587,22 @@ int __private_tls_expand_key(TLSContext *context) {
     unsigned char *clientiv = NULL;
     unsigned char *serveriv = NULL;
     int iv_length = __TLS_AES_IV_LENGTH;
+
     int pos = 0;
-    if (context->is_server) {
-        memcpy(context->crypto.remote_mac, &key[pos], mac_length);
-        pos += mac_length;
-        memcpy(context->crypto.local_mac, &key[pos], mac_length);
-        pos += mac_length;
-    } else {
-        memcpy(context->crypto.local_mac, &key[pos], mac_length);
-        pos += mac_length;
-        memcpy(context->crypto.remote_mac, &key[pos], mac_length);
-        pos += mac_length;
+    if (__private_tls_is_gcm(context))
+        iv_length = __TLS_AES_GCM_IV_LENGTH;
+    else {
+        if (context->is_server) {
+            memcpy(context->crypto.remote_mac, &key[pos], mac_length);
+            pos += mac_length;
+            memcpy(context->crypto.local_mac, &key[pos], mac_length);
+            pos += mac_length;
+        } else {
+            memcpy(context->crypto.local_mac, &key[pos], mac_length);
+            pos += mac_length;
+            memcpy(context->crypto.remote_mac, &key[pos], mac_length);
+            pos += mac_length;
+        }
     }
     
     clientkey = &key[pos];
@@ -1024,42 +1043,76 @@ void tls_destroy_packet(TLSPacket *packet) {
 
 int __private_tls_crypto_create(TLSContext *context, int key_length, int iv_length, unsigned char *localkey, unsigned char *localiv, unsigned char *remotekey, unsigned char *remoteiv) {
     if (context->crypto.created) {
-        cbc_done(&context->crypto.aes_remote);
-        cbc_done(&context->crypto.aes_local);
+        if (context->crypto.created == 1) {
+            cbc_done(&context->crypto.aes_remote);
+            cbc_done(&context->crypto.aes_local);
+        } else {
+            unsigned char dummy_buffer[32];
+            unsigned long tag_len = 0;
+            gcm_done(&context->crypto.aes_gcm_remote, dummy_buffer, &tag_len);
+            gcm_done(&context->crypto.aes_gcm_local, dummy_buffer, &tag_len);
+        }
         context->crypto.created = 0;
     }
 
-    int cipherID = find_cipher("rijndael");
+    int cipherID = find_cipher("aes");
     DEBUG_PRINT("Using cipher ID: %i\n", cipherID);
-    int res1 = cbc_start(cipherID, localiv, localkey, key_length, 0, &context->crypto.aes_local);
-    int res2 = cbc_start(cipherID, remoteiv, remotekey, key_length, 0, &context->crypto.aes_remote);
+    if (__private_tls_is_gcm(context)) {
+        int res1 = gcm_init(&context->crypto.aes_gcm_local, cipherID, localkey, key_length);
+        int res2 = gcm_init(&context->crypto.aes_gcm_remote, cipherID, remotekey, key_length);
+        gcm_add_iv(&context->crypto.aes_gcm_local, localiv, iv_length);
+        gcm_add_iv(&context->crypto.aes_gcm_remote, remoteiv, iv_length);
 
-    if ((res1) || (res2))
-        return TLS_GENERIC_ERROR;
-    context->crypto.created = 1;
+        if ((res1) || (res2))
+            return TLS_GENERIC_ERROR;
+        context->crypto.created = 2;
+    } else {
+        int res1 = cbc_start(cipherID, localiv, localkey, key_length, 0, &context->crypto.aes_local);
+        int res2 = cbc_start(cipherID, remoteiv, remotekey, key_length, 0, &context->crypto.aes_remote);
+
+        if ((res1) || (res2))
+            return TLS_GENERIC_ERROR;
+        context->crypto.created = 1;
+    }
     return 0;
 }
 
-int __private_tls_crypto_encrypt(TLSContext *context, const unsigned char *buf, unsigned char *ct, unsigned int len) {
-    if (context->crypto.created)
-        return cbc_encrypt(buf, ct, len, &context->crypto.aes_local);
+int __private_tls_crypto_encrypt(TLSContext *context, unsigned char *buf, unsigned char *ct, unsigned int len) {
+    switch (context->crypto.created) {
+        case 1:
+            return cbc_encrypt(buf, ct, len, &context->crypto.aes_local);
+        case 2:
+            return gcm_process(&context->crypto.aes_gcm_local, buf, len, ct, GCM_ENCRYPT);
+    }
     memset(ct, 0, len);
     return TLS_GENERIC_ERROR;
 }
 
-int __private_tls_crypto_decrypt(TLSContext *context, const unsigned char *buf, unsigned char *pt, unsigned int len) {
-    if (context->crypto.created)
-        return cbc_decrypt(buf, pt, len, &context->crypto.aes_remote);
+int __private_tls_crypto_decrypt(TLSContext *context, unsigned char *buf, unsigned char *pt, unsigned int len) {
+    switch (context->crypto.created) {
+        case 1:
+            return cbc_decrypt(buf, pt, len, &context->crypto.aes_remote);
+        case 2:
+            return gcm_process(&context->crypto.aes_gcm_remote, pt, len, buf, GCM_DECRYPT);
+    }
     memset(pt, 0, len);
     return TLS_GENERIC_ERROR;
 }
 
 void __private_tls_crypto_done(TLSContext *context) {
-    if (context->crypto.created) {
-        cbc_done(&context->crypto.aes_remote);
-        cbc_done(&context->crypto.aes_local);
-        context->crypto.created = 0;
+    unsigned char dummy_buffer[32];
+    unsigned long tag_len = 0;
+    switch (context->crypto.created) {
+        case 1:
+            cbc_done(&context->crypto.aes_remote);
+            cbc_done(&context->crypto.aes_local);
+            break;
+        case 2:
+            gcm_done(&context->crypto.aes_gcm_remote, dummy_buffer, &tag_len);
+            gcm_done(&context->crypto.aes_gcm_local, dummy_buffer, &tag_len);
+            break;
     }
+    context->crypto.created = 0;
 }
 
 void tls_packet_update(TLSPacket *packet) {
@@ -2134,7 +2187,7 @@ unsigned int __private_tls_hmac_message(unsigned char local, TLSContext *context
     return (unsigned int)ref_outlen;
 }
 
-int tls_parse_message(TLSContext *context, const unsigned char *buf, int buf_len, tls_validation_function certificate_verify) {
+int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_validation_function certificate_verify) {
     int res = 5;
     int payload_res = 0;
 
