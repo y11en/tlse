@@ -40,7 +40,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #include "tomcrypt/tomcrypt.h"
 
-#define DEBUG
+//#define DEBUG
 
 #define SSL_COMPATIBLE_INTERFACE
 
