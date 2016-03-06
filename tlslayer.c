@@ -567,7 +567,7 @@ int __private_tls_key_length(TLSContext *context) {
     return 0;
 }
 
-int __private_tls_is_gcm(TLSContext *context) {
+int __private_tls_is_aead(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
             return 1;
@@ -618,7 +618,7 @@ int __private_tls_expand_key(TLSContext *context) {
     int iv_length = __TLS_AES_IV_LENGTH;
     
     int pos = 0;
-    if (__private_tls_is_gcm(context))
+    if (__private_tls_is_aead(context))
         iv_length = __TLS_AES_GCM_IV_LENGTH;
     else {
         if (context->is_server) {
@@ -1113,7 +1113,7 @@ int __private_tls_crypto_create(TLSContext *context, int key_length, int iv_leng
     
     int cipherID = find_cipher("aes");
     DEBUG_PRINT("Using cipher ID: %i\n", cipherID);
-    if (__private_tls_is_gcm(context)) {
+    if (__private_tls_is_aead(context)) {
         int res1 = gcm_init(&context->crypto.aes_gcm_local, cipherID, localkey, key_length);
         int res2 = gcm_init(&context->crypto.aes_gcm_remote, cipherID, remotekey, key_length);
         gcm_add_iv(&context->crypto.aes_gcm_local, localiv, iv_length);
@@ -1193,27 +1193,45 @@ void tls_packet_update(TLSPacket *packet) {
                     if (buf) {
                         unsigned char *ct = (unsigned char *)TLS_MALLOC(length + 5);
                         if (ct) {
-                            unsigned int buf_pos = 0;
-                            memcpy(ct, packet->buf, 3);
-                            *(unsigned short *)&ct[3] = htons(length);
-                            tls_random(buf, __TLS_AES_IV_LENGTH);
-                            buf_pos += __TLS_AES_IV_LENGTH;
-                            // copy payload
-                            memcpy(buf + buf_pos, packet->buf + 5, packet->len - 5);
-                            buf_pos += packet->len - 5;
-                            __private_tls_hmac_message(1, packet->context, packet->buf, packet->len, NULL, 0, buf + buf_pos, mac_size);
-                            buf_pos += mac_size;
-                            
-                            memset(buf + buf_pos, padding - 1, padding);
-                            buf_pos += padding;
-                            
-                            //DEBUG_DUMP_HEX_LABEL("PT BUFFER", buf, length);
-                            __private_tls_crypto_encrypt(packet->context, buf, ct + 5, length);
-                            TLS_FREE(packet->buf);
-                            packet->buf = ct;
-                            packet->len = length + 5;
-                            packet->size = packet->len;
-                            //DEBUG_DUMP_HEX_LABEL("CT BUFFER", packet->buf, packet->len);
+                            if (packet->context->crypto.created == 1) {
+                                unsigned int buf_pos = 0;
+                                memcpy(ct, packet->buf, 3);
+                                *(unsigned short *)&ct[3] = htons(length);
+                                tls_random(buf, __TLS_AES_IV_LENGTH);
+                                buf_pos += __TLS_AES_IV_LENGTH;
+                                // copy payload
+                                memcpy(buf + buf_pos, packet->buf + 5, packet->len - 5);
+                                buf_pos += packet->len - 5;
+                                __private_tls_hmac_message(1, packet->context, packet->buf, packet->len, NULL, 0, buf + buf_pos, mac_size);
+                                buf_pos += mac_size;
+                                
+                                memset(buf + buf_pos, padding - 1, padding);
+                                buf_pos += padding;
+                                
+                                //DEBUG_DUMP_HEX_LABEL("PT BUFFER", buf, length);
+                                __private_tls_crypto_encrypt(packet->context, buf, ct + 5, length);
+                                TLS_FREE(packet->buf);
+                                packet->buf = ct;
+                                packet->len = length + 5;
+                                packet->size = packet->len;
+                                //DEBUG_DUMP_HEX_LABEL("CT BUFFER", packet->buf, packet->len);
+                            } else
+                            if ((packet->context->crypto.created == 2) && (packet->len >= 5)) {
+                                // AEAD
+                                // sequance number (8 bytes)
+                                // content type (1 byte)
+                                // version (2 bytes)
+                                // length (2 bytes)
+                                unsigned char ad[13];
+                                *((uint64_t *)ad) = htonll(packet->context->local_sequence_number);
+                                ad[8] = buf[0];
+                                ad[9] = buf[1];
+                                ad[10] = buf[2];
+                                *((unsigned short *)&ad[11]) = htons(packet->len - 5);
+                                gcm_add_aad(&packet->context->crypto.aes_gcm_local, ad, 13);
+                                
+                                // to do
+                            }
                         }
                         TLS_FREE(buf);
                     }
