@@ -109,7 +109,7 @@
 #define __TLS_MAX_MAC_SIZE          __TLS_SHA256_MAC_SIZE
 #define __TLS_MAX_KEY_EXPANSION_SIZE 192 // 160
 #define __TLS_AES_IV_LENGTH         16
-#define __TLS_AES_GCM_IV_LENGTH     12
+#define __TLS_AES_GCM_IV_LENGTH     4
 #define __TLS_MIN_FINISHED_OPAQUE_LEN 12
 
 #define __TLS_BLOB_INCREMENT        0xFFF
@@ -1222,13 +1222,13 @@ void tls_packet_update(TLSPacket *packet) {
                                 // content type (1 byte)
                                 // version (2 bytes)
                                 // length (2 bytes)
-                                unsigned char ad[13];
-                                *((uint64_t *)ad) = htonll(packet->context->local_sequence_number);
-                                ad[8] = buf[0];
-                                ad[9] = buf[1];
-                                ad[10] = buf[2];
-                                *((unsigned short *)&ad[11]) = htons(packet->len - 5);
-                                gcm_add_aad(&packet->context->crypto.aes_gcm_local, ad, 13);
+                                unsigned char aad[13];
+                                *((uint64_t *)aad) = htonll(packet->context->local_sequence_number);
+                                aad[8] = buf[0];
+                                aad[9] = buf[1];
+                                aad[10] = buf[2];
+                                *((unsigned short *)&aad[11]) = htons(packet->len - 5);
+                                gcm_add_aad(&packet->context->crypto.aes_gcm_local, aad, sizeof(aad));
                                 
                                 // to do
                             }
