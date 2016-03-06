@@ -106,7 +106,8 @@
 #define __TLS_MAX_SESSION_ID        0xFF
 #define __TLS_SHA256_MAC_SIZE       32
 #define __TLS_SHA1_MAC_SIZE         20
-#define __TLS_MAX_MAC_SIZE          __TLS_SHA256_MAC_SIZE
+#define __TLS_SHA384_MAC_SIZE       48
+#define __TLS_MAX_MAC_SIZE          __TLS_SHA384_MAC_SIZE
 #define __TLS_MAX_KEY_EXPANSION_SIZE 192 // 160
 #define __TLS_AES_IV_LENGTH         16
 #define __TLS_AES_GCM_IV_LENGTH     4
@@ -120,6 +121,7 @@
 #define TLS_RSA_WITH_AES_128_CBC_SHA256       0x003C
 #define TLS_RSA_WITH_AES_256_CBC_SHA256       0x003D
 #define TLS_RSA_WITH_AES_128_GCM_SHA256       0x009C
+#define TLS_RSA_WITH_AES_256_GCM_SHA384       0x009D
 
 #define TLS_UNSUPPORTED_ALGORITHM   0x00
 #define TLS_RSA_SIGN_RSA            0x01
@@ -429,6 +431,7 @@ void init_dependencies() {
     register_prng(&sprng_desc);
     register_hash(&sha256_desc);
     register_hash(&sha1_desc);
+    register_hash(&sha384_desc);
     register_cipher(&aes_desc);
 }
 
@@ -568,6 +571,7 @@ int __private_tls_key_length(TLSContext *context) {
             return 16;
         case TLS_RSA_WITH_AES_256_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_RSA_WITH_AES_256_GCM_SHA384:
             return 32;
     }
     return 0;
@@ -590,6 +594,8 @@ unsigned int __private_tls_mac_length(TLSContext *context) {
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
             return __TLS_SHA256_MAC_SIZE;
+        case TLS_RSA_WITH_AES_256_GCM_SHA384:
+            return __TLS_SHA384_MAC_SIZE;
     }
     return 0;
 }
@@ -2253,6 +2259,9 @@ unsigned int __private_tls_hmac_message(unsigned char local, TLSContext *context
     int hash_idx;
     if (mac_size == __TLS_SHA1_MAC_SIZE)
         hash_idx = find_hash("sha1");
+    else
+    if (mac_size == __TLS_SHA384_MAC_SIZE)
+        hash_idx = find_hash("sha384");
     else
         hash_idx = find_hash("sha256");
     
