@@ -36,11 +36,12 @@ POSSIBILITY OF SUCH DAMAGE.
 #else
     // hton* and ntoh* functions
     #include <arpa/inet.h>
+    #include <unistd.h>
 #endif
 
 #include "tomcrypt/tomcrypt.h"
 
-//#define DEBUG
+// #define DEBUG
 
 #define SSL_COMPATIBLE_INTERFACE
 
@@ -98,7 +99,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #define TLS_BAD_CERTIFICATE     -14
 #define TLS_UNSUPPORTED_CERTIFICATE -15
 
-
 #define __TLS_CLIENT_HELLO_MINSIZE  41
 #define __TLS_CLIENT_RANDOM_SIZE    32
 #define __TLS_SERVER_RANDOM_SIZE    32
@@ -147,7 +147,8 @@ POSSIBILITY OF SUCH DAMAGE.
 #define __TLS_MAX_RSA_KEY   2048    // 16kbits
 
 #define __TLS_MAX_TLS_APP_SIZE      65000
-
+// max 1 second sleep
+#define __TLS_MAX_ERROR_SLEEP_uS    1000000    
 
 #define VERSION_SUPPORTED(version, err)  if (version < 0x300) return err;
 #define CHECK_SIZE(size, buf_size, err)  if ((size > buf_size) || (buf_size < 0)) return err;
@@ -477,6 +478,30 @@ unsigned char *__private_tls_encrypt_rsa(TLSContext *context, const unsigned cha
     }
     *size = out_size;
     return out;
+}
+
+unsigned int __private_tls_random_int(int limit) {
+    unsigned int res = 0;
+    tls_random((unsigned char *)&res, sizeof(int));
+    if (limit)
+        res %= limit;
+    return res;
+}
+
+void __private_tls_sleep(unsigned int microseconds) {
+#ifdef _WIN32
+    Sleep(microseconds/1000);
+#else
+    const struct timespec ts = {
+        .tv_sec = (long int) (microseconds / 1000000),
+        .tv_nsec = (long int) (microseconds % 1000000) * 1000ul
+    };
+    nanosleep(&ts, NULL);
+#endif
+}
+
+void __private_random_sleep(int max_microseconds) {
+    __private_tls_sleep(__private_tls_random_int(max_microseconds));
 }
 
 void __private_tls_prf( unsigned char *output, unsigned int outlen, const unsigned char *secret, const unsigned int secret_len, 
@@ -2205,6 +2230,7 @@ int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_
         DEBUG_DUMP_HEX_LABEL("encrypted", &buf[5], length);
         if (!context->crypto.created) {
             DEBUG_PRINT("Encryption context not created\n");
+            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
             return TLS_BROKEN_PACKET;
         }
         pt = (unsigned char *)TLS_MALLOC(length);
@@ -2215,6 +2241,7 @@ int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_
         int err = __private_tls_crypto_decrypt(context, buf + 5, pt, length);
         if (err) {
             DEBUG_PRINT("Decryption error %i\n", (int)err);
+            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
             return TLS_BROKEN_PACKET;
         }
         unsigned char padding = pt[length - 1] + 1;
@@ -2234,6 +2261,7 @@ int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_
         if ((length < mac_size) || (!mac_size)) {
             TLS_FREE(pt);
             DEBUG_PRINT("BROKEN PACKET\n");
+            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
             __private_tls_write_packet(tls_build_alert(context, 1, decrypt_error));
             return TLS_BROKEN_PACKET;
         }
@@ -2247,10 +2275,12 @@ int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_
         *(unsigned short *)&temp_buf[3] = htons(length);
         unsigned int hmac_out_len = __private_tls_hmac_message(0, context, temp_buf, 5, ptr, length, hmac_out, mac_size);
         if ((hmac_out_len != mac_size) || (memcmp(message_hmac, hmac_out, mac_size))) {
+            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
             DEBUG_PRINT("INTEGRITY CHECK FAILED (msg length %i)\n", length);
             DEBUG_DUMP_HEX_LABEL("HMAC RECEIVED", message_hmac, mac_size);
             DEBUG_DUMP_HEX_LABEL("HMAC COMPUTED", hmac_out, hmac_out_len);
             TLS_FREE(pt);
+            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
             __private_tls_write_packet(tls_build_alert(context, 1, bad_record_mac));
             return TLS_INTEGRITY_FAILED;
         }
