@@ -238,12 +238,12 @@ typedef struct {
         gcm_state aes_gcm_remote;
     };
     union {
-        unsigned char local_mac[__TLS_SHA256_MAC_SIZE];
+        unsigned char local_mac[__TLS_MAX_MAC_SIZE];
         unsigned char local_aead_iv[__TLS_AES_GCM_IV_LENGTH];
     };
     union {
         unsigned char remote_aead_iv[__TLS_AES_GCM_IV_LENGTH];
-        unsigned char remote_mac[__TLS_SHA256_MAC_SIZE];
+        unsigned char remote_mac[__TLS_MAX_MAC_SIZE];
     };
     unsigned char created;
 } TLSCipher;
@@ -3136,7 +3136,7 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         memset(temp, 0, sizeof(temp));
         
         unsigned char mac_length = buffer[buf_pos++];
-        if ((!mac_length) || (mac_length > __TLS_SHA256_MAC_SIZE)) {
+        if ((!mac_length) || (mac_length > __TLS_MAX_MAC_SIZE)) {
             DEBUG_PRINT("INVALID MAC SIZE\n");
             tls_destroy_context(context);
             return NULL;
