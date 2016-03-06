@@ -237,8 +237,14 @@ typedef struct {
         symmetric_CBC aes_remote;
         gcm_state aes_gcm_remote;
     };
-    unsigned char local_mac[__TLS_SHA256_MAC_SIZE];
-    unsigned char remote_mac[__TLS_SHA256_MAC_SIZE];
+    union {
+        unsigned char local_mac[__TLS_SHA256_MAC_SIZE];
+        unsigned char local_aead_iv[__TLS_AES_GCM_IV_LENGTH];
+    };
+    union {
+        unsigned char remote_aead_iv[__TLS_AES_GCM_IV_LENGTH];
+        unsigned char remote_mac[__TLS_SHA256_MAC_SIZE];
+    };
     unsigned char created;
 } TLSCipher;
 
@@ -618,7 +624,8 @@ int __private_tls_expand_key(TLSContext *context) {
     int iv_length = __TLS_AES_IV_LENGTH;
     
     int pos = 0;
-    if (__private_tls_is_aead(context))
+    int is_aead = __private_tls_is_aead(context);
+    if (is_aead)
         iv_length = __TLS_AES_GCM_IV_LENGTH;
     else {
         if (context->is_server) {
@@ -652,9 +659,17 @@ int __private_tls_expand_key(TLSContext *context) {
     DEBUG_DUMP_HEX_LABEL("SERVER MAC KEY", context->is_server ? context->crypto.local_mac : context->crypto.remote_mac, mac_length)
     
     if (context->is_server) {
+        if (is_aead) {
+            memcpy(context->crypto.remote_aead_iv, clientiv, iv_length);
+            memcpy(context->crypto.local_aead_iv, serveriv, iv_length);
+        }
         if (__private_tls_crypto_create(context, key_length, iv_length, serverkey, serveriv, clientkey, clientiv))
             return 0;
     } else {
+        if (is_aead) {
+            memcpy(context->crypto.local_aead_iv, clientiv, iv_length);
+            memcpy(context->crypto.remote_aead_iv, serveriv, iv_length);
+        }
         if (__private_tls_crypto_create(context, key_length, iv_length, clientkey, clientiv, serverkey, serveriv))
             return 0;
     }
@@ -2998,14 +3013,22 @@ int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int 
     unsigned char mac_length = (unsigned char)__private_tls_mac_length(context);
     unsigned char iv[__TLS_AES_IV_LENGTH];
     unsigned long len = __TLS_AES_IV_LENGTH;
-    memset(iv, 0, __TLS_AES_IV_LENGTH);
-    cbc_getiv(iv, &len, &context->crypto.aes_local);
-    tls_packet_uint8(packet, __TLS_AES_IV_LENGTH);
-    tls_packet_append(packet, iv, len);
     
-    memset(iv, 0, __TLS_AES_IV_LENGTH);
-    cbc_getiv(iv, &len, &context->crypto.aes_remote);
-    tls_packet_append(packet, iv, __TLS_AES_IV_LENGTH);
+    if (context->crypto.created == 2) {
+        // aead
+        tls_packet_uint8(packet, __TLS_AES_GCM_IV_LENGTH);
+        tls_packet_append(packet, context->crypto.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+        tls_packet_append(packet, context->crypto.remote_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+    } else {
+        memset(iv, 0, __TLS_AES_IV_LENGTH);
+        cbc_getiv(iv, &len, &context->crypto.aes_local);
+        tls_packet_uint8(packet, __TLS_AES_IV_LENGTH);
+        tls_packet_append(packet, iv, len);
+    
+        memset(iv, 0, __TLS_AES_IV_LENGTH);
+        cbc_getiv(iv, &len, &context->crypto.aes_remote);
+        tls_packet_append(packet, iv, __TLS_AES_IV_LENGTH);
+    }
     
     tls_packet_uint8(packet, context->exportable_size);
     tls_packet_append(packet, context->exportable_keys, context->exportable_size);
@@ -3072,7 +3095,7 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         unsigned char local_iv[__TLS_AES_IV_LENGTH];
         unsigned char remote_iv[__TLS_AES_IV_LENGTH];
         unsigned char iv_len = buffer[10];
-        if (iv_len != __TLS_AES_IV_LENGTH) {
+        if (iv_len >  __TLS_AES_IV_LENGTH) {
             DEBUG_PRINT("INVALID IV LENGTH\n");
             tls_destroy_context(context);
             return NULL;
@@ -3090,10 +3113,25 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         memcpy(temp, &buffer[buf_pos], key_lengths);
         buf_pos += key_lengths;
         
-        if (__private_tls_crypto_create(context, key_lengths / 2, iv_len, temp, local_iv, temp + key_lengths / 2, remote_iv)) {
-            DEBUG_PRINT("ERROR CREATING KEY CONTEXT\n");
-            tls_destroy_context(context);
-            return NULL;
+        if (__private_tls_is_aead(context)) {
+            if (iv_len > __TLS_AES_GCM_IV_LENGTH)
+                iv_len = __TLS_AES_GCM_IV_LENGTH;
+            memcpy(context->crypto.local_aead_iv, local_iv, iv_len);
+            memcpy(context->crypto.remote_aead_iv, remote_iv, iv_len);
+        }
+        
+        if (context->is_server) {
+            if (__private_tls_crypto_create(context, key_lengths / 2, iv_len, temp, local_iv, temp + key_lengths / 2, remote_iv)) {
+                DEBUG_PRINT("ERROR CREATING KEY CONTEXT\n");
+                tls_destroy_context(context);
+                return NULL;
+            }
+        } else {
+            if (__private_tls_crypto_create(context, key_lengths / 2, iv_len, temp + key_lengths / 2, remote_iv, temp, local_iv)) {
+                DEBUG_PRINT("ERROR CREATING KEY CONTEXT (CLIENT)\n");
+                tls_destroy_context(context);
+                return NULL;
+            }
         }
         memset(temp, 0, sizeof(temp));
         
