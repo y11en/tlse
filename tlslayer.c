@@ -33,6 +33,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #ifdef _WIN32
     #include <windows.h>
     #include <wincrypt.h>
+    #define strcasecmp stricmp
 #else
     // hton* and ntoh* functions
     #include <arpa/inet.h>
@@ -781,6 +782,33 @@ TLSCertificate *tls_create_certificate() {
     if (cert)
         memset(cert, 0, sizeof(TLSCertificate));
     return cert;
+}
+
+int tls_certificate_is_valid(TLSCertificate *cert) {
+    if (!cert)
+        return certificate_unknown;
+    if (!cert->not_before)
+        return certificate_unknown;
+    if (!cert->not_after)
+        return certificate_unknown;
+    //160224182300Z//
+    char current_time[14];
+    time_t t = time(NULL);
+    struct tm *utct = gmtime(&t);
+    if (utct) {
+        current_time[0] = 0;
+        snprintf(current_time, sizeof(current_time), "%i%02d%02d%02d%02d%02dZ", utct->tm_year - 100, utct->tm_mon + 1, utct->tm_mday, utct->tm_hour, utct->tm_min, utct->tm_sec);
+        if (strcasecmp(cert->not_before, current_time) > 0) {
+            DEBUG_PRINT("Certificate is not yer valid, now: %s (validity: %s - %s)\n", current_time, cert->not_before, cert->not_after);
+            return certificate_expired;
+        }
+        if (strcasecmp(cert->not_after, current_time) < 0) {
+            DEBUG_PRINT("Expired certificate, now: %s (validity: %s - %s)\n", current_time, cert->not_before, cert->not_after);
+            return certificate_expired;
+        }
+        DEBUG_PRINT("Valid certificate, now: %s (validity: %s - %s)\n", current_time, cert->not_before, cert->not_after);
+    }
+    return 0;
 }
 
 void tls_certificate_set_copy(unsigned char **member, const unsigned char *val, int len) {
