@@ -294,6 +294,7 @@ typedef struct {
     unsigned char exportable;
     unsigned char *exportable_keys;
     unsigned char exportable_size;
+    char *sni;
     void *user_data;
 } TLSContext;
 
@@ -1589,6 +1590,7 @@ void tls_destroy_context(TLSContext *context) {
     if ((context->exportable_keys) && (context->exportable_size))
         memset(context->exportable_keys, 0, context->exportable_size);
     TLS_FREE(context->exportable_keys);
+    TLS_FREE(context->sni);
     TLS_FREE(context);
 }
 
@@ -1780,7 +1782,13 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
             *write_packets = 2;
         context->connection_status = 1;
     }
-    
+
+
+    unsigned short extensions_size = 0;
+    if (res > 2) {
+        extensions_size = ntohs(*(unsigned short *)&buf[res]);
+        res += 2;
+    }
     // ignore extensions for now
     while (buf_len - res >= 4) {
         // have extensions
@@ -1788,14 +1796,29 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
         res += 2;
         unsigned short extension_len = ntohs(*(unsigned short *)&buf[res]);
         res += 2;
+        DEBUG_PRINT("Extension: 0x0%x (%i), len: %i\n", (int)extension_type, (int)extension_type, (int)extension_len);
         if (extension_len) {
+            // SNI extension
             CHECK_SIZE(extension_len, buf_len - res, TLS_NEED_MORE_DATA)
-            // DEBUG_DUMP(&buf[res], extension_len);
+            if (extension_type == 0x00) {
+                unsigned short sni_len = ntohs(*(unsigned short *)&buf[res]);
+                unsigned char sni_type = buf[res + 2];
+                unsigned short sni_host_len = ntohs(*(unsigned short *)&buf[res + 3]);
+                CHECK_SIZE(sni_host_len, buf_len - res - 3, TLS_NEED_MORE_DATA)
+                //CHECK_SIZE(sni_len, extension_len - 3, TLS_BROKEN_PACKET);
+                if (sni_host_len) {
+                    TLS_FREE(context->sni);
+                    context->sni = TLS_MALLOC(sni_host_len + 1);
+                    if (context->sni) {
+                        memcpy(context->sni, &buf[res + 5], sni_host_len);
+                        context->sni[sni_host_len] = 0;
+                        DEBUG_PRINT("SNI HOST INDICATOR: [%s]\n", context->sni);
+                    }
+                }
+            }
             res += extension_len;
         }
-        // DEBUG_PRINT("Extension: 0x0%x (%i), len: %i\n", (int)extension_type, (int)extension_type, (int)extension_len);
     }
-    
     if (buf_len != res)
         return TLS_NEED_MORE_DATA;
     
