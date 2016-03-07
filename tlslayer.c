@@ -1243,13 +1243,21 @@ void tls_packet_update(TLSPacket *packet) {
                                 packet->len = length + 5;
                                 packet->size = packet->len;
                                 //DEBUG_DUMP_HEX_LABEL("CT BUFFER", packet->buf, packet->len);
+                            } else {
+                                // invalidate packet
+                                memset(packet->buf, 0, packet->len);
                             }
                             TLS_FREE(buf);
+                        } else {
+                            // invalidate packet
+                            memset(packet->buf, 0, packet->len);
                         }
                     } else
                     if (packet->context->crypto.created == 2) {
-                        unsigned char *ct = (unsigned char *)TLS_MALLOC(length + 5 + 12 + __TLS_GCM_TAG_LEN);
+                        int ct_size = length + 5 + 12 + __TLS_GCM_TAG_LEN;
+                        unsigned char *ct = (unsigned char *)TLS_MALLOC(ct_size);
                         if (ct) {
+                            memset(ct, 0, ct_size);
                             // AEAD
                             // sequance number (8 bytes)
                             // content type (1 byte)
@@ -1286,7 +1294,13 @@ void tls_packet_update(TLSPacket *packet) {
                             packet->buf = ct;
                             packet->len = ct_pos;
                             packet->size = ct_pos;
+                        } else {
+                            // invalidate packet
+                            memset(packet->buf, 0, packet->len);
                         }
+                    } else {
+                        // invalidate packet (never reached)
+                        memset(packet->buf, 0, packet->len);
                     }
                 }
             }
