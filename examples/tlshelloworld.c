@@ -132,6 +132,10 @@ int main(int argc , char *argv[]) {
                     read_buffer[read_size] = 0;
                     unsigned char export_buffer[0xFFF];
                     // simulate serialization / deserialization to another process
+                    char sni[0xFF];
+                    sni[0] = 0;
+                    if (context->sni)
+                        snprintf(sni, 0xFF, "%s", context->sni);
 /* COOL STUFF => */ int size = tls_export_context(context, export_buffer, sizeof(export_buffer));
                     if (size > 0) {
 /* COOLER STUFF => */   TLSContext *imported_context = tls_import_context(export_buffer, size);
@@ -149,7 +153,7 @@ int main(int argc , char *argv[]) {
                     char send_buffer[0xF000];
                     char send_buffer_with_header[0xF000];
                     char out_buffer[0xFFF];
-                    snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.2 (used chipher is: %s)\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_cipher_name(context), tls_certificate_to_string(server_context->certificates[0], out_buffer, 0xFFF), read_buffer, source_buf);
+                    snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.2 (used chipher is: %s), SNI: %s\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_cipher_name(context), sni, tls_certificate_to_string(server_context->certificates[0], out_buffer, 0xFFF), read_buffer, source_buf);
                     int content_length = strlen(send_buffer);
                     snprintf(send_buffer_with_header, sizeof(send_buffer), "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-type: text/plain\r\nContent-length: %i\r\n\r\n%s", content_length, send_buffer);
                     tls_write(context, send_buffer_with_header, strlen(send_buffer_with_header));
