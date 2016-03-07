@@ -110,7 +110,9 @@
 #define __TLS_MAX_MAC_SIZE          __TLS_SHA384_MAC_SIZE
 #define __TLS_MAX_KEY_EXPANSION_SIZE 192 // 160
 #define __TLS_AES_IV_LENGTH         16
+#define __TLS_AES_BLOCK_SIZE        16
 #define __TLS_AES_GCM_IV_LENGTH     4
+#define __TLS_GCM_TAG_LEN           16
 #define __TLS_MIN_FINISHED_OPAQUE_LEN 12
 
 #define __TLS_BLOB_INCREMENT        0xFFF
@@ -580,6 +582,7 @@ int __private_tls_key_length(TLSContext *context) {
 int __private_tls_is_aead(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_RSA_WITH_AES_256_GCM_SHA384:
             return 1;
     }
     return 0;
@@ -694,7 +697,7 @@ int __private_tls_expand_key(TLSContext *context) {
             context->exportable_size = key_length * 2;
         }
     }
-    
+
     // extract client_mac_key(mac_key_length)
     // extract server_mac_key(mac_key_length)
     // extract client_key(enc_key_length)
@@ -1137,8 +1140,8 @@ int __private_tls_crypto_create(TLSContext *context, int key_length, int iv_leng
     if (__private_tls_is_aead(context)) {
         int res1 = gcm_init(&context->crypto.aes_gcm_local, cipherID, localkey, key_length);
         int res2 = gcm_init(&context->crypto.aes_gcm_remote, cipherID, remotekey, key_length);
-        gcm_add_iv(&context->crypto.aes_gcm_local, localiv, iv_length);
-        gcm_add_iv(&context->crypto.aes_gcm_remote, remoteiv, iv_length);
+        //gcm_add_iv(&context->crypto.aes_gcm_local, localiv, iv_length);
+        //gcm_add_iv(&context->crypto.aes_gcm_remote, remoteiv, iv_length);
         
         if ((res1) || (res2))
             return TLS_GENERIC_ERROR;
@@ -1155,23 +1158,17 @@ int __private_tls_crypto_create(TLSContext *context, int key_length, int iv_leng
 }
 
 int __private_tls_crypto_encrypt(TLSContext *context, unsigned char *buf, unsigned char *ct, unsigned int len) {
-    switch (context->crypto.created) {
-        case 1:
+    if (context->crypto.created == 1)
             return cbc_encrypt(buf, ct, len, &context->crypto.aes_local);
-        case 2:
-            return gcm_process(&context->crypto.aes_gcm_local, buf, len, ct, GCM_ENCRYPT);
-    }
+
     memset(ct, 0, len);
     return TLS_GENERIC_ERROR;
 }
 
 int __private_tls_crypto_decrypt(TLSContext *context, unsigned char *buf, unsigned char *pt, unsigned int len) {
-    switch (context->crypto.created) {
-        case 1:
-            return cbc_decrypt(buf, pt, len, &context->crypto.aes_remote);
-        case 2:
-            return gcm_process(&context->crypto.aes_gcm_remote, pt, len, buf, GCM_DECRYPT);
-    }
+    if (context->crypto.created == 1)
+        return cbc_decrypt(buf, pt, len, &context->crypto.aes_remote);
+
     memset(pt, 0, len);
     return TLS_GENERIC_ERROR;
 }
@@ -1201,20 +1198,30 @@ void tls_packet_update(TLSPacket *packet) {
                     __private_tls_update_hash(&packet->context->handshake_hash, packet->buf + 5, packet->len - 5);
                 
                 if ((packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
-                    int block_size = 16;
-                    if (packet->context->cipher == TLS_RSA_WITH_AES_256_CBC_SHA)
-                        block_size = 32;
-                    int mac_size = __private_tls_mac_length(packet->context);
-                    unsigned int length = packet->len - 5 + __TLS_AES_IV_LENGTH + mac_size;
+                    int block_size = __TLS_AES_BLOCK_SIZE;
+                    // check this, it should work with block_size 16 ! for AES256
+                    // if (packet->context->cipher == TLS_RSA_WITH_AES_256_CBC_SHA)
+                    //    block_size = 32;
+                    int mac_size = 0;
+                    unsigned int length = 0;
+                    unsigned char padding = 0;
+                    unsigned int pt_length = packet->len - 5;
+                    if (packet->context->crypto.created == 1) {
+                        mac_size = __private_tls_mac_length(packet->context);
+                        length = packet->len - 5 + __TLS_AES_IV_LENGTH + mac_size;
+                        padding = block_size - length % block_size;
+                        length += padding;
+                    } else {
+                        mac_size = __TLS_GCM_TAG_LEN;
+                        length = packet->len - 5 + 8 + mac_size;
+                    }
                     
-                    unsigned char padding = block_size - length % block_size;
-                    length += padding;
                     
-                    unsigned char *buf = (unsigned char *)TLS_MALLOC(length);
-                    if (buf) {
-                        unsigned char *ct = (unsigned char *)TLS_MALLOC(length + 5);
-                        if (ct) {
-                            if (packet->context->crypto.created == 1) {
+                    if (packet->context->crypto.created == 1) {
+                        unsigned char *buf = (unsigned char *)TLS_MALLOC(length);
+                        if (buf) {
+                            unsigned char *ct = (unsigned char *)TLS_MALLOC(length + 5);
+                            if (ct) {
                                 unsigned int buf_pos = 0;
                                 memcpy(ct, packet->buf, 3);
                                 *(unsigned short *)&ct[3] = htons(length);
@@ -1236,25 +1243,50 @@ void tls_packet_update(TLSPacket *packet) {
                                 packet->len = length + 5;
                                 packet->size = packet->len;
                                 //DEBUG_DUMP_HEX_LABEL("CT BUFFER", packet->buf, packet->len);
-                            } else
-                            if ((packet->context->crypto.created == 2) && (packet->len >= 5)) {
-                                // AEAD
-                                // sequance number (8 bytes)
-                                // content type (1 byte)
-                                // version (2 bytes)
-                                // length (2 bytes)
-                                unsigned char aad[13];
-                                *((uint64_t *)aad) = htonll(packet->context->local_sequence_number);
-                                aad[8] = buf[0];
-                                aad[9] = buf[1];
-                                aad[10] = buf[2];
-                                *((unsigned short *)&aad[11]) = htons(packet->len - 5);
-                                gcm_add_aad(&packet->context->crypto.aes_gcm_local, aad, sizeof(aad));
-                                
-                                // to do
                             }
+                            TLS_FREE(buf);
                         }
-                        TLS_FREE(buf);
+                    } else
+                    if (packet->context->crypto.created == 2) {
+                        unsigned char *ct = (unsigned char *)TLS_MALLOC(length + 5 + 12 + __TLS_GCM_TAG_LEN);
+                        if (ct) {
+                            // AEAD
+                            // sequance number (8 bytes)
+                            // content type (1 byte)
+                            // version (2 bytes)
+                            // length (2 bytes)
+                            unsigned char aad[13];
+                            *((uint64_t *)aad) = htonll(packet->context->local_sequence_number);
+                            aad[8] = packet->buf[0];
+                            aad[9] = packet->buf[1];
+                            aad[10] = packet->buf[2];
+                            *((unsigned short *)&aad[11]) = htons(packet->len - 5);
+
+                            int ct_pos = 5;
+                            unsigned char iv[12];
+                            memcpy(iv, packet->context->crypto.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+                            tls_random(iv + __TLS_AES_GCM_IV_LENGTH, 8);
+                            memcpy(ct + ct_pos, iv + __TLS_AES_GCM_IV_LENGTH, 8);
+                            ct_pos += 8;
+
+                            gcm_reset(&packet->context->crypto.aes_gcm_local);
+                            gcm_add_iv(&packet->context->crypto.aes_gcm_local, iv, 12);
+                            gcm_add_aad(&packet->context->crypto.aes_gcm_local, aad, sizeof(aad));
+
+                            gcm_process(&packet->context->crypto.aes_gcm_local, packet->buf + 5, pt_length, ct + ct_pos, GCM_ENCRYPT);
+                            ct_pos += pt_length;
+
+                            unsigned long taglen = __TLS_GCM_TAG_LEN;
+                            gcm_done(&packet->context->crypto.aes_gcm_local, ct + ct_pos, &taglen);
+                            ct_pos += taglen;
+                                
+                            memcpy(ct, packet->buf, 3);
+                            *(unsigned short *)&ct[3] = htons(ct_pos - 5);
+                            TLS_FREE(packet->buf);
+                            packet->buf = ct;
+                            packet->len = ct_pos;
+                            packet->size = ct_pos;
+                        }
                     }
                 }
             }
@@ -1552,6 +1584,7 @@ int tls_cipher_supported(unsigned short cipher) {
         case TLS_RSA_WITH_AES_256_CBC_SHA:
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_RSA_WITH_AES_128_GCM_SHA256:
             return 1;
     }
     return 0;
@@ -1579,6 +1612,8 @@ const char *tls_cipher_name(TLSContext *context) {
             return "AES256CBC-SHA256";
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
             return "AES128GCM-SHA256";
+        case TLS_RSA_WITH_AES_256_GCM_SHA384:
+            return "AES256GCM-SHA384";
     }
     return "UNKNOWN";
 }
@@ -1629,11 +1664,12 @@ TLSPacket *tls_build_hello(TLSContext *context) {
             tls_packet_uint8(packet, 0);
         } else {
             // sizeof ciphers (4 ciphers * 2 bytes)
-            tls_packet_uint16(packet, 8);
+            tls_packet_uint16(packet, 10);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_CBC_SHA);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_CBC_SHA);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_CBC_SHA256);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_CBC_SHA256);
+            tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_GCM_SHA256);
             // compression
             tls_packet_uint8(packet, 1);
             // no compression
@@ -2309,53 +2345,105 @@ int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_
         pt = (unsigned char *)TLS_MALLOC(length);
         if (!pt) {
             DEBUG_PRINT("Error in TLS_MALLOC (%i bytes)\n", (int)length);
+            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
             return TLS_NO_MEMORY;
         }
-        int err = __private_tls_crypto_decrypt(context, buf + 5, pt, length);
-        if (err) {
-            DEBUG_PRINT("Decryption error %i\n", (int)err);
-            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
-            return TLS_BROKEN_PACKET;
-        }
-        unsigned char padding = pt[length - 1] + 1;
-        unsigned int decrypted_length = length;
-        if (padding < decrypted_length)
-            decrypted_length -= padding;
+        if (context->crypto.created == 2) {
+            int pt_length = length - 8 - __TLS_GCM_TAG_LEN;
+            if (pt_length < 0) {
+                DEBUG_PRINT("Invalid packet length");
+                TLS_FREE(pt);
+                __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
+                return TLS_BROKEN_PACKET;
+            }
+            // build aad and iv
+            unsigned char aad[13];
+            *((uint64_t *)aad) = htonll(context->remote_sequence_number);
+            unsigned char iv[12];
+            memcpy(iv, context->crypto.remote_aead_iv, 4);
+            memcpy(iv + 4, buf + 5, 8);
+            gcm_reset(&context->crypto.aes_gcm_remote);
+            int res0 = gcm_add_iv(&context->crypto.aes_gcm_remote, iv, 12);
+
+            DEBUG_DUMP_HEX_LABEL("aad iv", iv, 12);
+            aad[8] = buf[0];
+            aad[9] = buf[1];
+            aad[10] = buf[2];
+            
+            *((unsigned short *)&aad[11]) = htons(pt_length);
+            int res1 = gcm_add_aad(&context->crypto.aes_gcm_remote, aad, sizeof(aad));
+            memset(pt, 0, length);
+            DEBUG_PRINT("PT SIZE: %i\n", pt_length);
+            int res2 = gcm_process(&context->crypto.aes_gcm_remote, pt, pt_length, buf + 5 + 8, GCM_DECRYPT);
+            unsigned char tag[32];
+            unsigned long taglen = 32;
+            int res3 = gcm_done(&context->crypto.aes_gcm_remote, tag, &taglen);
+            if ((res0) || (res1) || (res2) || (res3) || (taglen != __TLS_GCM_TAG_LEN)) {
+                DEBUG_PRINT("ERROR: gcm_add_iv: %i, gcm_add_aad: %i, gcm_process: %i, gcm_done: %i\n", res0, res1, res2, res3);
+                __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
+                return TLS_BROKEN_PACKET;
+            }
+            DEBUG_DUMP_HEX_LABEL("decrypted", pt, pt_length);
+            DEBUG_DUMP_HEX_LABEL("tag", tag, taglen);
+            // check tag
+            if (memcmp(buf + 5 + 8 + pt_length, tag, taglen)) {
+                DEBUG_PRINT("INTEGRITY CHECK FAILED (msg length %i)\n", pt_length);
+                DEBUG_DUMP_HEX_LABEL("TAG RECEIVED", buf + 5 + 8 + pt_length, taglen);
+                DEBUG_DUMP_HEX_LABEL("TAG COMPUTED", tag, taglen);
+                TLS_FREE(pt);
+                __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
+                __private_tls_write_packet(tls_build_alert(context, 1, bad_record_mac));
+                return TLS_INTEGRITY_FAILED;
+            }
+            ptr = pt;
+            length = pt_length;
+        } else {
+            int err = __private_tls_crypto_decrypt(context, buf + 5, pt, length);
+            if (err) {
+                TLS_FREE(pt);
+                DEBUG_PRINT("Decryption error %i\n", (int)err);
+                __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
+                return TLS_BROKEN_PACKET;
+            }
+            unsigned char padding = pt[length - 1] + 1;
+            unsigned int decrypted_length = length;
+            if (padding < decrypted_length)
+                decrypted_length -= padding;
         
-        DEBUG_DUMP_HEX_LABEL("decrypted", pt, decrypted_length);
-        ptr = pt;
-        if (decrypted_length > __TLS_AES_IV_LENGTH) {
-            decrypted_length -= __TLS_AES_IV_LENGTH;
-            ptr += __TLS_AES_IV_LENGTH;
-        }
-        length = decrypted_length;
+            DEBUG_DUMP_HEX_LABEL("decrypted", pt, decrypted_length);
+            ptr = pt;
+            if (decrypted_length > __TLS_AES_IV_LENGTH) {
+                decrypted_length -= __TLS_AES_IV_LENGTH;
+                ptr += __TLS_AES_IV_LENGTH;
+            }
+            length = decrypted_length;
         
-        int mac_size = __private_tls_mac_length(context);
-        if ((length < mac_size) || (!mac_size)) {
-            TLS_FREE(pt);
-            DEBUG_PRINT("BROKEN PACKET\n");
-            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
-            __private_tls_write_packet(tls_build_alert(context, 1, decrypt_error));
-            return TLS_BROKEN_PACKET;
-        }
+            int mac_size = __private_tls_mac_length(context);
+            if ((length < mac_size) || (!mac_size)) {
+                TLS_FREE(pt);
+                DEBUG_PRINT("BROKEN PACKET\n");
+                __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
+                __private_tls_write_packet(tls_build_alert(context, 1, decrypt_error));
+                return TLS_BROKEN_PACKET;
+            }
         
-        length -= mac_size;
+            length -= mac_size;
         
-        const unsigned char *message_hmac = &ptr[length];
-        unsigned char hmac_out[__TLS_MAX_MAC_SIZE];
-        unsigned char temp_buf[5];
-        memcpy(temp_buf, buf, 3);
-        *(unsigned short *)&temp_buf[3] = htons(length);
-        unsigned int hmac_out_len = __private_tls_hmac_message(0, context, temp_buf, 5, ptr, length, hmac_out, mac_size);
-        if ((hmac_out_len != mac_size) || (memcmp(message_hmac, hmac_out, mac_size))) {
-            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
-            DEBUG_PRINT("INTEGRITY CHECK FAILED (msg length %i)\n", length);
-            DEBUG_DUMP_HEX_LABEL("HMAC RECEIVED", message_hmac, mac_size);
-            DEBUG_DUMP_HEX_LABEL("HMAC COMPUTED", hmac_out, hmac_out_len);
-            TLS_FREE(pt);
-            __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
-            __private_tls_write_packet(tls_build_alert(context, 1, bad_record_mac));
-            return TLS_INTEGRITY_FAILED;
+            const unsigned char *message_hmac = &ptr[length];
+            unsigned char hmac_out[__TLS_MAX_MAC_SIZE];
+            unsigned char temp_buf[5];
+            memcpy(temp_buf, buf, 3);
+            *(unsigned short *)&temp_buf[3] = htons(length);
+            unsigned int hmac_out_len = __private_tls_hmac_message(0, context, temp_buf, 5, ptr, length, hmac_out, mac_size);
+            if ((hmac_out_len != mac_size) || (memcmp(message_hmac, hmac_out, mac_size))) {
+                DEBUG_PRINT("INTEGRITY CHECK FAILED (msg length %i)\n", length);
+                DEBUG_DUMP_HEX_LABEL("HMAC RECEIVED", message_hmac, mac_size);
+                DEBUG_DUMP_HEX_LABEL("HMAC COMPUTED", hmac_out, hmac_out_len);
+                TLS_FREE(pt);
+                __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
+                __private_tls_write_packet(tls_build_alert(context, 1, bad_record_mac));
+                return TLS_INTEGRITY_FAILED;
+            }
         }
     }
     context->remote_sequence_number++;
