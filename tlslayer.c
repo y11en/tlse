@@ -1706,11 +1706,11 @@ TLSPacket *tls_build_hello(TLSContext *context) {
         } else {
             // sizeof ciphers (4 ciphers * 2 bytes)
             tls_packet_uint16(packet, 10);
+            tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_GCM_SHA256);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_CBC_SHA);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_CBC_SHA);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_CBC_SHA256);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_CBC_SHA256);
-            tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_GCM_SHA256);
             // compression
             tls_packet_uint8(packet, 1);
             // no compression
