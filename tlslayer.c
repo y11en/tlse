@@ -1104,12 +1104,15 @@ void tls_destroy_certificate(TLSCertificate *cert) {
     }
 }
 
-TLSPacket *tls_create_packet(TLSContext *context, unsigned char type, unsigned short version) {
+TLSPacket *tls_create_packet(TLSContext *context, unsigned char type, unsigned short version, int payload_size_hint) {
     TLSPacket *packet = (TLSPacket *)TLS_MALLOC(sizeof(TLSPacket));
     if (!packet)
         return NULL;
     packet->broken = 0;
-    packet->size = __TLS_BLOB_INCREMENT;
+    if (payload_size_hint > 0)
+        packet->size = payload_size_hint + 10;
+    else
+        packet->size = __TLS_BLOB_INCREMENT;
     packet->buf = (unsigned char *)TLS_MALLOC(packet->size);
     packet->context = context;
     if (!packet->buf) {
@@ -1345,8 +1348,10 @@ int tls_packet_append(TLSPacket *packet, unsigned char *buf, int len) {
     
     if (new_len > packet->size) {
         packet->size = (new_len / __TLS_BLOB_INCREMENT + 1) * __TLS_BLOB_INCREMENT;
-        packet->buf = (unsigned char *)realloc(packet->buf, packet->size);
+        packet->buf = (unsigned char *)TLS_REALLOC(packet->buf, packet->size);
         if (!packet->buf) {
+            packet->size = 0;
+            packet->len = 0;
             packet->broken = 1;
             return -1;
         }
@@ -1665,7 +1670,7 @@ TLSPacket *tls_build_client_key_exchange(TLSContext *context) {
         return NULL;
     }
     
-    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version);
+    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x10);
     __private_tls_build_random(packet);
     context->connection_status = 2;
@@ -1679,7 +1684,7 @@ TLSPacket *tls_build_hello(TLSContext *context) {
     
     unsigned short packet_version = context->version;
     unsigned short version = context->version;
-    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, packet_version);
+    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, packet_version, 0);
     if (packet) {
         // hello
         if (context->is_server)
@@ -1750,7 +1755,7 @@ TLSPacket *tls_build_verify_request(TLSContext *context) {
     }
     
     unsigned short packet_version = context->version;
-    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, packet_version);
+    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, packet_version, 0);
     if (packet) {
         // verify request
         tls_packet_uint8(packet, 0x03);
@@ -3009,7 +3014,7 @@ TLSPacket *tls_build_certificate(TLSContext *context) {
         if ((cert) && (cert->der_len))
             all_certificate_size += cert->der_len + 3;
     }
-    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version);
+    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0B);
     
     tls_packet_uint24(packet, all_certificate_size + 3);
@@ -3027,7 +3032,7 @@ TLSPacket *tls_build_certificate(TLSContext *context) {
 }
 
 TLSPacket *tls_build_finished(TLSContext *context) {
-    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version);
+    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x14);
     
     tls_packet_uint24(packet, __TLS_MIN_FINISHED_OPAQUE_LEN);
@@ -3050,7 +3055,7 @@ TLSPacket *tls_build_finished(TLSContext *context) {
 }
 
 TLSPacket *tls_build_change_cipher_spec(TLSContext *context) {
-    TLSPacket *packet = tls_create_packet(context, TLS_CHANGE_CIPHER, context->version);
+    TLSPacket *packet = tls_create_packet(context, TLS_CHANGE_CIPHER, context->version, 0);
     tls_packet_uint8(packet, 1);
     tls_packet_update(packet);
     context->local_sequence_number = 0;
@@ -3058,7 +3063,7 @@ TLSPacket *tls_build_change_cipher_spec(TLSContext *context) {
 }
 
 TLSPacket *tls_build_done(TLSContext *context) {
-    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version);
+    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0E);
     tls_packet_uint24(packet, 0);
     tls_packet_update(packet);
@@ -3068,7 +3073,7 @@ TLSPacket *tls_build_done(TLSContext *context) {
 TLSPacket *tls_build_message(TLSContext *context, unsigned char *data, unsigned int len) {
     if ((!data) || (!len))
         return 0;
-    TLSPacket *packet = tls_create_packet(context, TLS_APPLICATION_DATA, context->version);
+    TLSPacket *packet = tls_create_packet(context, TLS_APPLICATION_DATA, context->version, len);
     tls_packet_append(packet, data, len);
     tls_packet_update(packet);
     return packet;
@@ -3092,7 +3097,7 @@ int tls_write(TLSContext *context, unsigned char *data, unsigned int len) {
 }
 
 TLSPacket *tls_build_alert(TLSContext *context, char critical, unsigned char code) {
-    TLSPacket *packet = tls_create_packet(context, TLS_ALERT, context->version);
+    TLSPacket *packet = tls_create_packet(context, TLS_ALERT, context->version, 0);
     tls_packet_uint8(packet, critical ? TLS_ALERT_CRITICAL : TLS_ALERT_WARNING);
     if (critical)
         context->critical_error = 1;
@@ -3216,7 +3221,7 @@ int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int 
     
     int buffer_size = __TLS_CLIENT_RANDOM_SIZE * 2;
     
-    TLSPacket *packet = tls_create_packet(NULL, TLS_SERIALIZED_OBJECT, context->version);
+    TLSPacket *packet = tls_create_packet(NULL, TLS_SERIALIZED_OBJECT, context->version, 0);
     // export buffer version
     tls_packet_uint8(packet, 0x01);
     tls_packet_uint8(packet, context->connection_status);
@@ -3476,16 +3481,6 @@ void SSL_load_error_strings() {
     // dummy function
 }
 
-int __tls_ssl_private_read_from_file(const char *fname, void *buf, int max_len) {
-    FILE *f = fopen(fname, "rb");
-    if (f) {
-        int size = fread(buf, 1, max_len - 1, f);
-        fclose(f);
-        return size;
-    }
-    return 0;
-}
-
 int __tls_ssl_private_send_pending(int client_sock, TLSContext *context) {
     unsigned int out_buffer_len = 0;
     const unsigned char *out_buffer = tls_get_write_buffer(context, &out_buffer_len);
@@ -3519,7 +3514,7 @@ int SSLv3_client_method() {
 int SSL_CTX_use_certificate_file(TLSContext *context, const char *filename, int dummy) {
     // max 64k buffer
     unsigned char buf[0xFFFF];
-    int size = __tls_ssl_private_read_from_file(filename, buf, sizeof(buf));
+    int size = __private_tls_read_from_file(filename, buf, sizeof(buf));
     if (size > 0)
         return tls_load_certificates(context, buf, size);
     return size;
@@ -3527,7 +3522,7 @@ int SSL_CTX_use_certificate_file(TLSContext *context, const char *filename, int 
 
 int SSL_CTX_use_PrivateKey_file(TLSContext *context, const char *filename, int dummy) {
     unsigned char buf[0xFFFF];
-    int size = __tls_ssl_private_read_from_file(filename, buf, sizeof(buf));
+    int size = __private_tls_read_from_file(filename, buf, sizeof(buf));
     if (size > 0)
         return tls_load_private_key(context, buf, size);
     
