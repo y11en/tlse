@@ -8,7 +8,7 @@
     #include <netinet/in.h>
     #include <netdb.h> 
 #endif
-#include "../tlslayer.c"
+#include "tlslayer.c"
 
 // ================================================================================================= //
 // this example ilustrates the libssl-almost-compatible interface                                    //
@@ -22,6 +22,10 @@ int verify(TLSContext *context, TLSCertificate **certificate_chain, int len) {
     if (certificate_chain) {
         for (i = 0; i < len; i++) {
             TLSCertificate *certificate = certificate_chain[i];
+            // check validity date
+            int err = tls_certificate_is_valid(certificate);
+            if (err)
+                return err;
             // check certificate in certificate->bytes of length certificate->len
             // the certificate is in ASN.1 DER format
         }
@@ -37,7 +41,8 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serv_addr;
     struct hostent *server;
     int ret;
-    char msg[] = "GET /\r\n\r\n";
+    char msg[] = "GET /\r\nHost: %s:%i\r\n\r\n";
+    char msg_buffer[0xFF];
     char buffer[0xFFF];
     char *ref_argv[] = {"", "google.com", "443"};
 
@@ -52,17 +57,17 @@ int main(int argc, char *argv[]) {
 
     // dummy functions ... for semantic compatibility only
     SSL_library_init();
-	SSL_load_error_strings();
+    SSL_load_error_strings();
 	
     // note that SSL and SSL_CTX are the same in tlslayer.c
     // both are mapped to TLSContext
-	SSL *clientssl = SSL_CTX_new(SSLv3_client_method());
+    SSL *clientssl = SSL_CTX_new(SSLv3_client_method());
     // optionally, we can set a certificate validation callback function
     SSL_CTX_set_verify(clientssl, SSL_VERIFY_PEER, verify);
 	
-	if (!clientssl) {
+    if (!clientssl) {
         fprintf(stderr, "Error initializing client context\n");
-		return -1;
+        return -1;
     }
 	
     if (argc < 3)
@@ -87,6 +92,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "ERROR connecting to %s:%s", argv[1], argv[2]);
         return -4;
     }
+    snprintf(msg_buffer, sizeof(msg_buffer), msg, argv[1], portno);
     // starting from here is identical with libssl
     SSL_set_fd(clientssl, sockfd);
 
@@ -94,7 +100,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Handshake Error %i\n", ret);
         return -5;
     }
-    ret = SSL_write(clientssl, msg, strlen(msg));
+    ret = SSL_write(clientssl, msg_buffer, strlen(msg_buffer));
     if (ret < 0) {
         fprintf(stderr, "SSL write error %i\n", ret);
         return -6;
@@ -112,5 +118,5 @@ int main(int argc, char *argv[]) {
     close(sockfd);
 #endif
     SSL_CTX_free(clientssl);
-	return 0;	
+    return 0;	
 }
