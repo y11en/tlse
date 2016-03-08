@@ -3080,7 +3080,7 @@ TLSPacket *tls_build_message(TLSContext *context, unsigned char *data, unsigned 
 }
 
 int tls_client_connect(TLSContext *context) {
-    if ((context->is_server) && (!context->critical_error))
+    if ((context->is_server) || (context->critical_error))
         return TLS_UNEXPECTED_MESSAGE;
     
     return __private_tls_write_packet(tls_build_hello(context));
@@ -3147,6 +3147,8 @@ int tls_consume_stream(TLSContext *context, const unsigned char *buf, int buf_le
         int consumed = tls_parse_message(context, &context->message_buffer[index], length, certificate_verify);
         DEBUG_PRINT("Consumed %i bytes\n", consumed);
         if (consumed < 0) {
+            if (!context->critical_error)
+                context->critical_error = 1;
             err_flag = consumed;
             break;
         }
@@ -3436,6 +3438,12 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         buf_pos++;
     }
     return context;
+}
+
+int tls_is_broken(TLSContext *context) {
+    if ((!context) || (context->critical_error))
+        return 1;
+    return 0;
 }
 
 #ifdef DEBUG
