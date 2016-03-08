@@ -112,7 +112,7 @@ int main(int argc , char *argv[]) {
         tls_make_exportable(context, 1);
 
         fprintf(stderr, "Client connected\n");
-        while (read_size = recv(client_sock, client_message, 0xFFFFF , 0)) {
+        while ((read_size = recv(client_sock, client_message, 0xFFFFF , 0)) > 0) {
             if (tls_consume_stream(context, client_message, read_size, NULL) > 0)
                 break;
             //if (!tls_pending(context))
@@ -159,15 +159,15 @@ int main(int argc , char *argv[]) {
                     tls_write(context, send_buffer_with_header, strlen(send_buffer_with_header));
                     tls_close_notify(context);
                     send_pending(client_sock, context);
-                    // use so_linger or shutdown istead of sleep to ensure a clean close
-                    sleep(1);
                     break;
                 }
             }
         }
 #ifdef __WIN32
+        shutdown(client_sock, SD_BOTH);
         closesocket(client_sock);
 #else
+        shutdown(client_sock, SHUT_RDWR);
         close(client_sock);
 #endif
         tls_destroy_context(context);
