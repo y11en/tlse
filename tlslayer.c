@@ -466,6 +466,7 @@ unsigned char *__private_tls_decrypt_rsa(TLSContext *context, const unsigned cha
     int hash_idx = find_hash("sha256");
     int res = 0;
     err = rsa_decrypt_key_ex(buffer, len, out, &out_size, (unsigned char *)"Concept", 7, hash_idx, LTC_LTC_PKCS_1_V1_5, &res, &key);
+    rsa_free(&key);
     if ((err) || (!out_size)) {
         TLS_FREE(out);
         return NULL;
@@ -496,6 +497,7 @@ unsigned char *__private_tls_encrypt_rsa(TLSContext *context, const unsigned cha
     int res = 0;
     int prng_idx = find_prng("sprng");
     err = rsa_encrypt_key_ex(buffer, len, out, &out_size, (unsigned char *)"Concept", 7, NULL, prng_idx, hash_idx, LTC_LTC_PKCS_1_V1_5, &key);
+    rsa_free(&key);
     if ((err) || (!out_size)) {
         TLS_FREE(out);
         return NULL;
