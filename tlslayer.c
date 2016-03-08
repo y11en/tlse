@@ -3607,7 +3607,7 @@ int SSL_accept(TLSContext *context) {
     unsigned char client_message[0xFFFF];
     // accept
     int read_size;
-    while ((read_size = recv(ssl_data->fd, client_message, sizeof(client_message), 0))) {
+    while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0))) {
         if (tls_consume_stream(context, client_message, read_size, NULL) >= 0) {
             int res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
@@ -3634,7 +3634,7 @@ int SSL_connect(TLSContext *context) {
     
     int read_size;
     unsigned char client_message[0xFFFF];
-    while ((read_size = recv(ssl_data->fd, client_message, sizeof(client_message), 0)) > 0) {
+    while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
         if (tls_consume_stream(context, client_message, read_size, NULL) >= 0) {
             res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
@@ -3662,7 +3662,7 @@ int SSL_shutdown(TLSContext *context) {
 int SSL_write(TLSContext *context, unsigned char *buf, unsigned int len) {
     if (!context)
         return TLS_GENERIC_ERROR;
-    SSLUserData *ssl_data = context->user_data;
+    SSLUserData *ssl_data = (SSLUserData *)context->user_data;
     if ((!ssl_data) || (ssl_data->fd <= 0))
         return TLS_GENERIC_ERROR;
     
@@ -3688,7 +3688,7 @@ int SSL_read(TLSContext *context, unsigned char *buf, unsigned int len) {
         unsigned char client_message[0xFFFF];
         // accept
         int read_size;
-        while ((read_size = recv(ssl_data->fd, client_message, sizeof(client_message), 0)) > 0) {
+        while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
             if (tls_consume_stream(context, client_message, read_size, NULL) > 0) {
                 int read_size = __tls_ssl_private_send_pending(ssl_data->fd, context);
                 break;
