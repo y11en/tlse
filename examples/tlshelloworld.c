@@ -115,51 +115,54 @@ int main(int argc , char *argv[]) {
         while ((read_size = recv(client_sock, client_message, 0xFFFFF , 0)) > 0) {
             if (tls_consume_stream(context, client_message, read_size, NULL) > 0)
                 break;
-            //if (!tls_pending(context))
-            //    break;
         }
         send_pending(client_sock, context);
-        fprintf(stderr, "USED CIPHER: %s\n", tls_cipher_name(context));
-        int ref_packet_count = 0;
-        int res;
-        while ((read_size = recv(client_sock, client_message, 0xFFFF , 0)) > 0) {
-            tls_consume_stream(context, client_message, read_size, NULL);
-            send_pending(client_sock, context);
-            if (tls_established(context)) {
-                unsigned char read_buffer[0xFFFF];
-                int read_size = tls_read(context, read_buffer, 0xFFFF - 1);
-                if (read_size > 0) {
-                    read_buffer[read_size] = 0;
-                    unsigned char export_buffer[0xFFF];
-                    // simulate serialization / deserialization to another process
-                    char sni[0xFF];
-                    sni[0] = 0;
-                    if (context->sni)
-                        snprintf(sni, 0xFF, "%s", context->sni);
-/* COOL STUFF => */ int size = tls_export_context(context, export_buffer, sizeof(export_buffer));
-                    if (size > 0) {
-/* COOLER STUFF => */   TLSContext *imported_context = tls_import_context(export_buffer, size);
-// This is cool because a context can be sent to an existing process.
-// It will work both with fork and with already existing worker process.
-                        fprintf(stderr, "Imported context (size: %i): %x\n", size, imported_context);
-                        if (imported_context) {
-                            // destroy old context
-                            tls_destroy_context(context);
-                            // simulate serialization/deserialization of context
-                            context = imported_context;
-                        }
-                    }
-                    // ugly inefficient code ... don't write like me
-                    char send_buffer[0xF000];
-                    char send_buffer_with_header[0xF000];
-                    char out_buffer[0xFFF];
-                    snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.2 (used chipher is: %s), SNI: %s\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_cipher_name(context), sni, tls_certificate_to_string(server_context->certificates[0], out_buffer, 0xFFF), read_buffer, source_buf);
-                    int content_length = strlen(send_buffer);
-                    snprintf(send_buffer_with_header, sizeof(send_buffer), "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-type: text/plain\r\nContent-length: %i\r\n\r\n%s", content_length, send_buffer);
-                    tls_write(context, send_buffer_with_header, strlen(send_buffer_with_header));
-                    tls_close_notify(context);
-                    send_pending(client_sock, context);
+        if (read_size > 0) {
+            fprintf(stderr, "USED CIPHER: %s\n", tls_cipher_name(context));
+            int ref_packet_count = 0;
+            int res;
+            while ((read_size = recv(client_sock, client_message, 0xFFFF , 0)) > 0) {
+                if (tls_consume_stream(context, client_message, read_size, NULL) < 0) {
+                    fprintf(stderr, "Error in stream consume\n");
                     break;
+                }
+                send_pending(client_sock, context);
+                if (tls_established(context) == 1) {
+                    unsigned char read_buffer[0xFFFF];
+                    int read_size = tls_read(context, read_buffer, 0xFFFF - 1);
+                    if (read_size > 0) {
+                        read_buffer[read_size] = 0;
+                        unsigned char export_buffer[0xFFF];
+                        // simulate serialization / deserialization to another process
+                        char sni[0xFF];
+                        sni[0] = 0;
+                        if (context->sni)
+                            snprintf(sni, 0xFF, "%s", context->sni);
+    /* COOL STUFF => */ int size = tls_export_context(context, export_buffer, sizeof(export_buffer));
+                        if (size > 0) {
+    /* COOLER STUFF => */   TLSContext *imported_context = tls_import_context(export_buffer, size);
+    // This is cool because a context can be sent to an existing process.
+    // It will work both with fork and with already existing worker process.
+                            fprintf(stderr, "Imported context (size: %i): %x\n", size, imported_context);
+                            if (imported_context) {
+                                // destroy old context
+                                tls_destroy_context(context);
+                                // simulate serialization/deserialization of context
+                                context = imported_context;
+                            }
+                        }
+                        // ugly inefficient code ... don't write like me
+                        char send_buffer[0xF000];
+                        char send_buffer_with_header[0xF000];
+                        char out_buffer[0xFFF];
+                        snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.2 (used chipher is: %s), SNI: %s\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_cipher_name(context), sni, tls_certificate_to_string(server_context->certificates[0], out_buffer, 0xFFF), read_buffer, source_buf);
+                        int content_length = strlen(send_buffer);
+                        snprintf(send_buffer_with_header, sizeof(send_buffer), "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-type: text/plain\r\nContent-length: %i\r\n\r\n%s", content_length, send_buffer);
+                        tls_write(context, send_buffer_with_header, strlen(send_buffer_with_header));
+                        tls_close_notify(context);
+                        send_pending(client_sock, context);
+                        break;
+                    }
                 }
             }
         }
