@@ -74,12 +74,12 @@ int main(int argc , char *argv[]) {
         }
         SSL_set_fd(client, client_sock);
         if (SSL_accept(client)) {
+            fprintf(stderr, "Cipher %s\n", tls_cipher_name(client));
             while ((read_size = SSL_read(client, client_message, sizeof(client_message))) >= 0) {
                 fwrite(client_message, read_size, 1, stdout);
                 
                 if (SSL_write(client, msg, strlen(msg)) < 0)
                     fprintf(stderr, "Error in SSL write\n");
-                sleep(1);
                 break;
             }
         } else
@@ -87,8 +87,10 @@ int main(int argc , char *argv[]) {
         
         SSL_shutdown(client);
 #ifdef __WIN32
+        shutdown(client_sock, SD_BOTH);
         closesocket(client_sock);
 #else
+        shutdown(client_sock, SHUT_RDWR);
         close(client_sock);
 #endif
         SSL_free(client);
