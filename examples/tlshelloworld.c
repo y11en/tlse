@@ -112,7 +112,7 @@ int main(int argc , char *argv[]) {
         tls_make_exportable(context, 1);
 
         fprintf(stderr, "Client connected\n");
-        while ((read_size = recv(client_sock, client_message, 0xFFFFF , 0)) > 0) {
+        while ((read_size = recv(client_sock, client_message, sizeof(client_message), 0)) > 0) {
             if (tls_consume_stream(context, client_message, read_size, NULL) > 0)
                 break;
         }
@@ -121,7 +121,7 @@ int main(int argc , char *argv[]) {
             fprintf(stderr, "USED CIPHER: %s\n", tls_cipher_name(context));
             int ref_packet_count = 0;
             int res;
-            while ((read_size = recv(client_sock, client_message, 0xFFFF , 0)) > 0) {
+            while ((read_size = recv(client_sock, client_message, sizeof(client_message) , 0)) > 0) {
                 if (tls_consume_stream(context, client_message, read_size, NULL) < 0) {
                     fprintf(stderr, "Error in stream consume\n");
                     break;
@@ -129,7 +129,7 @@ int main(int argc , char *argv[]) {
                 send_pending(client_sock, context);
                 if (tls_established(context) == 1) {
                     unsigned char read_buffer[0xFFFF];
-                    int read_size = tls_read(context, read_buffer, 0xFFFF - 1);
+                    int read_size = tls_read(context, read_buffer, sizeof(read_buffer) - 1);
                     if (read_size > 0) {
                         read_buffer[read_size] = 0;
                         unsigned char export_buffer[0xFFF];
