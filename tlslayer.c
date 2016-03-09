@@ -42,7 +42,7 @@
 
 #include "tomcrypt/tomcrypt.h"
 
-// #define DEBUG
+#define DEBUG
 
 #define SSL_COMPATIBLE_INTERFACE
 
@@ -160,6 +160,7 @@
 #define VERSION_SUPPORTED(version, err)  if (version < 0x300) return err;
 #define CHECK_SIZE(size, buf_size, err)  if ((size > buf_size) || (buf_size < 0)) return err;
 #define TLS_IMPORT_CHECK_SIZE(buf_pos, size, buf_size) if ((size > buf_size - buf_pos) || (buf_pos > buf_size)) { DEBUG_PRINT("IMPORT ELEMENT SIZE ERROR\n"); tls_destroy_context(context); return NULL; }
+#define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
 
 enum {
     KEA_dhe_dss,
@@ -329,6 +330,9 @@ typedef struct {
     unsigned short dtls_epoch_remote;
     unsigned char *dtls_cookie;
     unsigned short dtls_cookie_len;
+
+    // handshake messages flags
+    unsigned char hs_messages[11];
     void *user_data;
 } TLSContext;
 
@@ -470,6 +474,7 @@ void init_dependencies() {
     register_hash(&sha256_desc);
     register_hash(&sha1_desc);
     register_hash(&sha384_desc);
+    register_hash(&md5_desc);
     register_cipher(&aes_desc);
 }
 
@@ -1784,15 +1789,17 @@ TLSPacket *tls_certificate_request(TLSContext *context) {
         int start_len = packet->len;
         tls_packet_uint8(packet, 1);
         tls_packet_uint8(packet, rsa_sign);
-        // 4 pairs or 2 bytes
-        tls_packet_uint16(packet, 8);
-        tls_packet_uint8(packet, sha1);
-        tls_packet_uint8(packet, rsa);
+        // 10 pairs or 2 bytes
+        tls_packet_uint16(packet, 10);
         tls_packet_uint8(packet, sha256);
+        tls_packet_uint8(packet, rsa);
+        tls_packet_uint8(packet, sha1);
         tls_packet_uint8(packet, rsa);
         tls_packet_uint8(packet, sha384);
         tls_packet_uint8(packet, rsa);
         tls_packet_uint8(packet, sha512);
+        tls_packet_uint8(packet, rsa);
+        tls_packet_uint8(packet, md5);
         tls_packet_uint8(packet, rsa);
         // no DistinguishedName yet
         tls_packet_uint16(packet, 0);
@@ -2298,6 +2305,21 @@ int tls_parse_finished(TLSContext *context, const unsigned char *buf, int buf_le
     return res;
 }
 
+int tls_parse_verify(TLSContext *context, const unsigned char *buf, int buf_len) {
+    CHECK_SIZE(7, buf_len, TLS_BAD_CERTIFICATE)
+    unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
+    CHECK_SIZE(bytes_to_follow, buf_len - 3, TLS_BAD_CERTIFICATE)
+    unsigned int hash = buf[3];
+    unsigned int algorithm = buf[4];
+    if (algorithm != rsa)
+        return TLS_UNSUPPORTED_CERTIFICATE;
+    unsigned short size = ntohs(*(unsigned short *)&buf[5]);
+    CHECK_SIZE(size, bytes_to_follow - 4, TLS_BAD_CERTIFICATE)
+    DEBUG_PRINT("ALGORITHM %i/%i (%i)\n", hash, algorithm, (int)size);
+    DEBUG_DUMP_HEX_LABEL("VERIFY", &buf[7], bytes_to_follow - 7);
+    return 1;
+}
+
 int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len, tls_validation_function certificate_verify) {
     int res = 1;
     int payload_res = 0;
@@ -2308,14 +2330,15 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
     switch (type) {
             // hello request
         case 0x00:
+            CHECK_HANDSHAKE_STATE(context, 0, 1);
             DEBUG_PRINT(" => HELLO REQUEST (RENEGOTIATION?)\n");
             if (context->is_server)
                 payload_res = TLS_UNEXPECTED_MESSAGE;
-            else
-                payload_res = tls_parse_hello(context, buf + 1, buf_len - 1, &write_packets);
+            // no payload
             break;
             // client hello
         case 0x01:
+            CHECK_HANDSHAKE_STATE(context, 1, (context->dtls ? 2 : 1));
             DEBUG_PRINT(" => CLIENT HELLO\n");
             if (context->is_server)
                 payload_res = tls_parse_hello(context, buf + 1, buf_len - 1, &write_packets);
@@ -2324,6 +2347,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // server hello
         case 0x02:
+            CHECK_HANDSHAKE_STATE(context, 2, 1);
             DEBUG_PRINT(" => SERVER HELLO\n");
             if (context->is_server)
                 payload_res = TLS_UNEXPECTED_MESSAGE;
@@ -2332,6 +2356,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // hello verify request
         case 0x03:
+            CHECK_HANDSHAKE_STATE(context, 3, 1);
             if ((context->dtls) && (!context->is_server)) {
                 // to do
             } else
@@ -2339,6 +2364,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // certificate
         case 0x0B:
+            CHECK_HANDSHAKE_STATE(context, 4, 1);
             DEBUG_PRINT(" => CERTIFICATE\n");
             // ignore for now client certificates
             if (!context->is_server) {
@@ -2352,6 +2378,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // server key exchange
         case 0x0C:
+            CHECK_HANDSHAKE_STATE(context, 5, 1);
             DEBUG_PRINT(" => SERVER KEY EXCHANGE\n");
             if (context->is_server)
                 payload_res = TLS_UNEXPECTED_MESSAGE;
@@ -2360,6 +2387,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // certificate request
         case 0x0D:
+            CHECK_HANDSHAKE_STATE(context, 6, 1);
             // server to client
             if (context->is_server)
                 payload_res = TLS_UNEXPECTED_MESSAGE;
@@ -2368,6 +2396,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // server hello done
         case 0x0E:
+            CHECK_HANDSHAKE_STATE(context, 7, 1);
             DEBUG_PRINT(" => SERVER HELLO DONE\n");
             if (context->is_server) {
                 payload_res = TLS_UNEXPECTED_MESSAGE;
@@ -2379,11 +2408,16 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // certificate verify
         case 0x0F:
+            CHECK_HANDSHAKE_STATE(context, 8, 1);
             DEBUG_PRINT(" => CERTIFICATE VERIFY\n");
-            payload_res = TLS_BAD_CERTIFICATE;
+            if (context->connection_status == 2)
+                payload_res = tls_parse_verify(context, buf + 1, buf_len - 1);
+            else
+                payload_res = TLS_UNEXPECTED_MESSAGE;
             break;
             // client key exchange
         case 0x10:
+            CHECK_HANDSHAKE_STATE(context, 9, 1);
             if (context->is_server)
                 payload_res = tls_parse_client_key_exchange(context, buf + 1, buf_len - 1);
             else
@@ -2391,8 +2425,11 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             break;
             // finished
         case 0x14:
+            CHECK_HANDSHAKE_STATE(context, 10, 1);
             DEBUG_PRINT(" => FINISHED\n");
             payload_res = tls_parse_finished(context, buf + 1, buf_len - 1, &write_packets);
+            if (payload_res > 0)
+                memset(context->hs_messages, 0, sizeof(context->hs_messages));
             break;
         default:
             DEBUG_PRINT(" => NOT UNDERSTOOD PAYLOAD TYPE: %x\n", (int)type);
