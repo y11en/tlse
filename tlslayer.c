@@ -657,8 +657,8 @@ void __private_tls_prf( unsigned char *output, unsigned int outlen, const unsign
                        const unsigned char *label, unsigned int label_len, unsigned char *seed, unsigned int seed_len,
                        unsigned char *seed_b, unsigned int seed_b_len) {
     // sha256_hmac
-    unsigned char digest_out0[32];
-    unsigned char digest_out1[32];
+    unsigned char digest_out0[__TLS_MAX_HASH_LEN];
+    unsigned char digest_out1[__TLS_MAX_HASH_LEN];
     unsigned long dlen = 32;
     int hash_idx = find_hash("sha256");
     int i;
@@ -1557,12 +1557,12 @@ int __private_tls_update_hash(TLSContext *context, const unsigned char *in, unsi
     if (!hash->created)
         __private_tls_create_hash(hash);
     
-    unsigned char temp2[32];
+    unsigned char temp2[__TLS_MAX_HASH_LEN];
     __private_tls_get_hash(context, temp2);
     
     __TLS_HASH_UPDATE(&hash->hash, in, len);
     
-    unsigned char temp[32];
+    unsigned char temp[__TLS_MAX_HASH_LEN];
     __private_tls_get_hash(context, temp);
 
     if ((context->request_client_certificate) && (len)) {
@@ -1859,7 +1859,7 @@ TLSPacket *tls_build_hello(TLSContext *context) {
             // no compression
             tls_packet_uint8(packet, 0);
         } else {
-            // sizeof ciphers (4 ciphers * 2 bytes)
+            // sizeof ciphers (5 ciphers * 2 bytes)
             tls_packet_uint16(packet, 10);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_GCM_SHA256);
             tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_CBC_SHA);
@@ -2459,13 +2459,14 @@ int tls_parse_verify(TLSContext *context, const unsigned char *buf, int buf_len)
 
 int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len, tls_validation_function certificate_verify) {
     int res = 1;
-    while (buf_len >= 4) {
+    int orig_len = buf_len;
+    while ((buf_len >= 4) && (!context->critical_error)) {
         int payload_res = 0;
         CHECK_SIZE(1, buf_len, TLS_NEED_MORE_DATA)
         unsigned char type = buf[0];
         unsigned int write_packets = 0;
         int certificate_verify_alert = no_error;
-        unsigned int payload_size = buf[1] * 0x10000 + buf[2] * 0x100 + buf[3];
+        unsigned int payload_size = buf[1] * 0x10000 + buf[2] * 0x100 + buf[3] + 3;
         switch (type) {
                 // hello request
             case 0x00:
@@ -2480,7 +2481,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 CHECK_HANDSHAKE_STATE(context, 1, (context->dtls ? 2 : 1));
                 DEBUG_PRINT(" => CLIENT HELLO\n");
                 if (context->is_server)
-                    payload_res = tls_parse_hello(context, buf + 1, buf_len - 1, &write_packets);
+                    payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets);
                 else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 break;
@@ -2491,7 +2492,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 if (context->is_server)
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 else
-                    payload_res = tls_parse_hello(context, buf + 1, buf_len - 1, &write_packets);
+                    payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets);
                 break;
                 // hello verify request
             case 0x03:
@@ -2504,19 +2505,18 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 // certificate
             case 0x0B:
                 CHECK_HANDSHAKE_STATE(context, 4, 1);
-                DEBUG_PRINT(" => CERTIFICATE %i\n", buf_len);
-                DEBUG_DUMP_HEX_LABEL("DATA", buf, buf_len);
+                DEBUG_PRINT(" => CERTIFICATE\n");
                 if (context->connection_status == 1) {
                     if (context->is_server) {
                         // client certificate
-                        payload_res = tls_parse_certificate(context, buf + 1, buf_len - 1, 1);
+                        payload_res = tls_parse_certificate(context, buf + 1, payload_size, 1);
                         if ((certificate_verify) && (context->client_certificates_count))
                             certificate_verify_alert = certificate_verify(context, context->client_certificates, context->client_certificates_count);
                         // empty certificates are permitted for client
                         if (payload_res <= 0)
                             payload_res = 1;
                     } else {
-                        payload_res = tls_parse_certificate(context, buf + 1, buf_len - 1, 0);
+                        payload_res = tls_parse_certificate(context, buf + 1, payload_size, 0);
                         if ((certificate_verify) && (context->certificates_count))
                             certificate_verify_alert = certificate_verify(context, context->certificates, context->certificates_count);
                     }
@@ -2530,7 +2530,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 if (context->is_server)
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 else
-                    payload_res = tls_parse_server_key_exchange(context, buf + 1, buf_len - 1);
+                    payload_res = tls_parse_server_key_exchange(context, buf + 1, payload_size);
                 break;
                 // certificate request
             case 0x0D:
@@ -2548,7 +2548,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 if (context->is_server) {
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 } else {
-                    payload_res = tls_parse_server_hello_done(context, buf + 1, buf_len - 1);
+                    payload_res = tls_parse_server_hello_done(context, buf + 1, payload_size);
                     if (payload_res > 0)
                         write_packets = 1;
                 }
@@ -2558,7 +2558,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 CHECK_HANDSHAKE_STATE(context, 8, 1);
                 DEBUG_PRINT(" => CERTIFICATE VERIFY\n");
                 if (context->connection_status == 2)
-                    payload_res = tls_parse_verify(context, buf + 1, buf_len - 1);
+                    payload_res = tls_parse_verify(context, buf + 1, payload_size);
                 else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 break;
@@ -2566,7 +2566,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
             case 0x10:
                 CHECK_HANDSHAKE_STATE(context, 9, 1);
                 if (context->is_server)
-                    payload_res = tls_parse_client_key_exchange(context, buf + 1, buf_len - 1);
+                    payload_res = tls_parse_client_key_exchange(context, buf + 1, payload_size);
                 else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 break;
@@ -2579,7 +2579,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 }
                 CHECK_HANDSHAKE_STATE(context, 10, 1);
                 DEBUG_PRINT(" => FINISHED\n");
-                payload_res = tls_parse_finished(context, buf + 1, buf_len - 1, &write_packets);
+                payload_res = tls_parse_finished(context, buf + 1, payload_size, &write_packets);
                 if (payload_res > 0)
                     memset(context->hs_messages, 0, sizeof(context->hs_messages));
                 break;
@@ -2588,7 +2588,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 return TLS_NOT_UNDERSTOOD;
         }
         if (type != 0x00)
-            __private_tls_update_hash(context, buf, buf_len);
+            __private_tls_update_hash(context, buf, payload_size + 1);
     
         if (certificate_verify_alert != no_error)
             __private_tls_write_packet(tls_build_alert(context, 1, certificate_verify_alert));
@@ -2666,11 +2666,11 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 context->connection_status = 0xFF;
                 break;
         }
-        payload_size += 4;
+        payload_size++;
         buf += payload_size;
         buf_len -= payload_size;
     }
-    return buf_len;
+    return orig_len;
 }
 
 unsigned int __private_tls_hmac_message(unsigned char local, TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen) {
