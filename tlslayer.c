@@ -1587,6 +1587,12 @@ int __private_tls_done_hash(TLSContext *context, unsigned char *hout) {
         hout = temp;
     __TLS_HASH_DONE(&hash->hash, hout);
     hash->created = 0;
+    if (context->cached_handshake) {
+        // not needed anymore
+        TLS_FREE(context->cached_handshake);
+        context->cached_handshake = NULL;
+        context->cached_handshake_len = 0;
+    }
     return __TLS_HASH_SIZE;
 }
 
