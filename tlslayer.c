@@ -1749,10 +1749,12 @@ void tls_destroy_context(TLSContext *context) {
         }
         if (context->private_key)
             tls_destroy_certificate(context->private_key);
+        TLS_FREE(context->certificates);
     }
     if (context->client_certificates) {
         for (i = 0; i < context->client_certificates_count; i++)
             tls_destroy_certificate(context->client_certificates[i]);
+        TLS_FREE(context->client_certificates);
     }
     TLS_FREE(context->master_key);
     TLS_FREE(context->premaster_key);
