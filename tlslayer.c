@@ -480,6 +480,7 @@ void init_dependencies() {
     register_hash(&sha256_desc);
     register_hash(&sha1_desc);
     register_hash(&sha384_desc);
+    register_hash(&sha512_desc);
     register_hash(&md5_desc);
     register_cipher(&aes_desc);
 }
@@ -2448,12 +2449,13 @@ int tls_parse_verify(TLSContext *context, const unsigned char *buf, int buf_len)
         context->cached_handshake = NULL;
         context->cached_handshake_len = 0;
     }
-    if (res != 1) {
+    if (res == 1) {
+        DEBUG_PRINT("Signature OK\n");
+        context->client_verified = 1;
+    } else {
         DEBUG_PRINT("Signature FAILED\n");
-        return TLS_BAD_CERTIFICATE;
+        context->client_verified = 0;
     }
-    DEBUG_PRINT("Signature OK\n");
-    context->client_verified = 1;
     return 1;
 }
 
