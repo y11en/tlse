@@ -1351,9 +1351,6 @@ void tls_packet_update(TLSPacket *packet) {
                 
                 if ((packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
                     int block_size = __TLS_AES_BLOCK_SIZE;
-                    // check this, it should work with block_size 16 ! for AES256
-                    // if (packet->context->cipher == TLS_RSA_WITH_AES_256_CBC_SHA)
-                    //    block_size = 32;
                     int mac_size = 0;
                     unsigned int length = 0;
                     unsigned char padding = 0;
