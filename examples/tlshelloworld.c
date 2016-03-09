@@ -105,8 +105,10 @@ int main(int argc , char *argv[]) {
             perror("accept failed");
             return 1;
         }
-        
         TLSContext *context = tls_accept(server_context);
+
+        // uncomment next line to request client certificate
+        // tls_request_client_certificate(context);
 
         // make the TLS context serializable (this must be called before negotiation)
         tls_make_exportable(context, 1);
@@ -116,7 +118,9 @@ int main(int argc , char *argv[]) {
             if (tls_consume_stream(context, client_message, read_size, NULL) > 0)
                 break;
         }
+
         send_pending(client_sock, context);
+
         if (read_size > 0) {
             fprintf(stderr, "USED CIPHER: %s\n", tls_cipher_name(context));
             int ref_packet_count = 0;
