@@ -63,8 +63,10 @@ int send_pending(int client_sock, TLSContext *context) {
 int verify_signature(TLSContext *context, TLSCertificate **certificate_chain, int len) {
     if (len) {
         TLSCertificate *cert = certificate_chain[0];
-        if (cert)
+        if (cert) {
             snprintf(identity_str, sizeof(identity_str), "%s, %s(%s) (issued by: %s)", cert->subject, cert->entity, cert->location, cert->issuer_entity);
+            fprintf(stderr, "Verified: %s\n", identity_str);
+        }
     }
     return no_error;
 }
@@ -112,6 +114,8 @@ int main(int argc , char *argv[]) {
     char source_buf[0xFFFF];
     int source_size = read_from_file("tlshelloworld.c", source_buf, 0xFFFF);
     while (1) {
+        identity_str[0] = 0;
+
         client_sock = accept(socket_desc, (struct sockaddr *)&client, &c);
         if (client_sock < 0) {
             perror("accept failed");
