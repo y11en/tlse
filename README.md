@@ -32,6 +32,8 @@ It has a low level interface, efficient for non-blocking, asynchronous sockets, 
 
 It implements all what is needed for the TLS protocol version 1.2 and a pem/der parser. From tomcrypt it uses RSA and AES(CBC) encryption/decryption, SHA1, SHA256 and HMAC functions.
 
+Now it supports client certificate. To request a client certificate, call ``tls_request_client_certificate(TLSContext *)`` following ``tls_accept(TLSContext *)``.
+
 This library was written to be used by my other projects [Concept Applications Server](https://github.com/Devronium/ConceptApplicationServer "Concept Application Server") and [Concept Native Client](https://github.com/Devronium/ConceptClientQT "Concept Client QT")
 
 Examples
