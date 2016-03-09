@@ -34,6 +34,8 @@ It implements all what is needed for the TLS protocol version 1.2 and a pem/der 
 
 Now it supports client certificate. To request a client certificate, call ``tls_request_client_certificate(TLSContext *)`` following ``tls_accept(TLSContext *)``.
 
+It implements SNI extension (Server Name Indication). To get the SNI string call ``tls_sni(TLSContext *)``.
+
 This library was written to be used by my other projects [Concept Applications Server](https://github.com/Devronium/ConceptApplicationServer "Concept Application Server") and [Concept Native Client](https://github.com/Devronium/ConceptClientQT "Concept Client QT")
 
 Examples
