@@ -3738,6 +3738,12 @@ int tls_client_verified(TLSContext *context) {
     return context->client_verified;
 }
 
+const char *tls_sni(TLSContext *context) {
+    if (!context)
+        return NULL;
+    return context->sni;
+}
+
 #ifdef DEBUG
 void tls_print_certificate(const char *fname) {
     unsigned char buf[0xFFFF];
