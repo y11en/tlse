@@ -11,6 +11,8 @@
     #include <arpa/inet.h>
 #endif
 
+static char identity_str[0xFF] = {0};
+
 int read_from_file(const char *fname, void *buf, int max_len) {
     FILE *f = fopen(fname, "rb");
     if (f) {
@@ -55,6 +57,16 @@ int send_pending(int client_sock, TLSContext *context) {
     }
     tls_buffer_clear(context);
     return send_res;
+}
+
+// verify signature
+int verify_signature(TLSContext *context, TLSCertificate **certificate_chain, int len) {
+    if (len) {
+        TLSCertificate *cert = certificate_chain[0];
+        if (cert)
+            snprintf(identity_str, sizeof(identity_str), "%s, %s(%s) (issued by: %s)", cert->subject, cert->entity, cert->location, cert->issuer_entity);
+    }
+    return no_error;
 }
 
 int main(int argc , char *argv[]) {
@@ -108,14 +120,14 @@ int main(int argc , char *argv[]) {
         TLSContext *context = tls_accept(server_context);
 
         // uncomment next line to request client certificate
-        // tls_request_client_certificate(context);
+        tls_request_client_certificate(context);
 
         // make the TLS context serializable (this must be called before negotiation)
         tls_make_exportable(context, 1);
 
         fprintf(stderr, "Client connected\n");
         while ((read_size = recv(client_sock, client_message, sizeof(client_message), 0)) > 0) {
-            if (tls_consume_stream(context, client_message, read_size, NULL) > 0)
+            if (tls_consume_stream(context, client_message, read_size, verify_signature) > 0)
                 break;
         }
 
@@ -126,7 +138,7 @@ int main(int argc , char *argv[]) {
             int ref_packet_count = 0;
             int res;
             while ((read_size = recv(client_sock, client_message, sizeof(client_message) , 0)) > 0) {
-                if (tls_consume_stream(context, client_message, read_size, NULL) < 0) {
+                if (tls_consume_stream(context, client_message, read_size, verify_signature) < 0) {
                     fprintf(stderr, "Error in stream consume\n");
                     break;
                 }
@@ -159,7 +171,7 @@ int main(int argc , char *argv[]) {
                         char send_buffer[0xF000];
                         char send_buffer_with_header[0xF000];
                         char out_buffer[0xFFF];
-                        snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.2 (used chipher is: %s), SNI: %s\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_cipher_name(context), sni, tls_certificate_to_string(server_context->certificates[0], out_buffer, 0xFFF), read_buffer, source_buf);
+                        snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.2 (used chipher is: %s), SNI: %s\r\nYour identity is: %s\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_cipher_name(context), sni, identity_str, tls_certificate_to_string(server_context->certificates[0], out_buffer, sizeof(out_buffer)), read_buffer, source_buf);
                         int content_length = strlen(send_buffer);
                         snprintf(send_buffer_with_header, sizeof(send_buffer), "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-type: text/plain\r\nContent-length: %i\r\n\r\n%s", content_length, send_buffer);
                         tls_write(context, send_buffer_with_header, strlen(send_buffer_with_header));
