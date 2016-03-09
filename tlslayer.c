@@ -50,7 +50,7 @@
 #define TLS_REALLOC(ptr, size)  realloc(ptr, size)
 #define TLS_FREE(ptr)           if (ptr) free(ptr)
 
-#ifdef DEBUG
+// #ifdef DEBUG
 #define DEBUG_PRINT(...)            fprintf(stderr, __VA_ARGS__)
 #define DEBUG_DUMP_HEX(buf, len)    {int i; for (i = 0; i < len; i++) { DEBUG_PRINT("%02X ", (unsigned int)(buf)[i]); } }
 #define DEBUG_INDEX(fields)         print_index(fields)
