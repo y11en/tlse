@@ -70,10 +70,13 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 	
-    if (argc < 3)
+    if (argc < 2)
         argv = ref_argv;
 
-    portno = atoi(argv[2]);
+    if (argc <= 2)
+        portno = 443;
+    else
+        portno = atoi(argv[2]);
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         fprintf(stderr, "ERROR opening socket");
@@ -89,12 +92,15 @@ int main(int argc, char *argv[]) {
     memcpy((char *)&serv_addr.sin_addr.s_addr, (char *)server->h_addr, server->h_length);
     serv_addr.sin_port = htons(portno);
     if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) {
-        fprintf(stderr, "ERROR connecting to %s:%s", argv[1], argv[2]);
+        fprintf(stderr, "ERROR connecting to %s", argv[1]);
         return -4;
     }
     snprintf(msg_buffer, sizeof(msg_buffer), msg, argv[1], portno);
     // starting from here is identical with libssl
     SSL_set_fd(clientssl, sockfd);
+
+    // set sni
+    tls_sni_set(clientssl, argv[1]);
 
     if ((ret = SSL_connect(clientssl)) != 1) {
         fprintf(stderr, "Handshake Error %i\n", ret);
