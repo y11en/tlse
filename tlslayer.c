@@ -159,7 +159,7 @@
 // max 1 second sleep
 #define __TLS_MAX_ERROR_SLEEP_uS    1000000
 
-#define VERSION_SUPPORTED(version, err)  if (version < 0x300) return err;
+#define VERSION_SUPPORTED(version, err)  if (version < TLS_V10) { DEBUG_PRINT("UNSUPPORTED TLS VERSION %x\n", (int)version) return err; }
 #define CHECK_SIZE(size, buf_size, err)  if ((size > buf_size) || (buf_size < 0)) return err;
 #define TLS_IMPORT_CHECK_SIZE(buf_pos, size, buf_size) if ((size > buf_size - buf_pos) || (buf_pos > buf_size)) { DEBUG_PRINT("IMPORT ELEMENT SIZE ERROR\n"); tls_destroy_context(context); return NULL; }
 #define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
@@ -1989,7 +1989,11 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     
     res += 2;
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
-    context->version = version;
+
+#ifdef TLS_FORCE_CLIENT_VERSION
+    if (!context->is_server)
+        context->version = version;
+#endif
     
     memcpy(context->remote_random, &buf[5], __TLS_CLIENT_RANDOM_SIZE);
     
@@ -3581,7 +3585,7 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         return NULL;
     }
     // create a context object
-    TLSContext *context = tls_create_context(0, 0);
+    TLSContext *context = tls_create_context(0, TLS_V12);
     if (context) {
         unsigned char temp[0xFF];
         context->version = ntohs(*(unsigned short *)&buffer[1]);
