@@ -1876,7 +1876,28 @@ TLSPacket *tls_build_hello(TLSContext *context) {
             tls_packet_uint8(packet, 1);
             // no compression
             tls_packet_uint8(packet, 0);
-            // no extensions
+            
+            int sni_len = 0;
+            if (context->sni)
+                sni_len = strlen(context->sni);
+            if (sni_len) {
+                // extensions length
+                tls_packet_uint16(packet, sni_len + 9);
+                // sni extension
+                tls_packet_uint16(packet, 0x00);
+                // sni extension len
+                tls_packet_uint16(packet, sni_len + 5);
+                // sni len
+                tls_packet_uint16(packet, sni_len + 3);
+                // sni type
+                tls_packet_uint8(packet, 0);
+                // sni host len
+                tls_packet_uint16(packet, sni_len);
+                tls_packet_append(packet, (unsigned char *)context->sni, sni_len);
+            } else {
+                // no extensions
+                tls_packet_uint16(packet, 0);
+            }
         }
         
         if ((!packet->broken) && (packet->buf)) {
@@ -2071,7 +2092,7 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
                 unsigned short sni_len = ntohs(*(unsigned short *)&buf[res]);
                 unsigned char sni_type = buf[res + 2];
                 unsigned short sni_host_len = ntohs(*(unsigned short *)&buf[res + 3]);
-                CHECK_SIZE(sni_host_len, buf_len - res - 3, TLS_NEED_MORE_DATA)
+                CHECK_SIZE(sni_host_len, buf_len - res - 5, TLS_NEED_MORE_DATA)
                 //CHECK_SIZE(sni_len, extension_len - 3, TLS_BROKEN_PACKET);
                 if (sni_host_len) {
                     TLS_FREE(context->sni);
@@ -2549,7 +2570,8 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 // server to client
                 if (context->is_server)
                     payload_res = TLS_UNEXPECTED_MESSAGE;
-                // to do: client
+                else
+                    context->client_verified = 2;
                 DEBUG_PRINT(" => CERTIFICATE REQUEST\n");
                 break;
                 // server hello done
@@ -2647,6 +2669,11 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
         // except renegotiation
         switch (write_packets) {
             case 1:
+                if (context->client_verified == 2) {
+                    DEBUG_PRINT("<= Building CERTIFICATE \n");
+                    __private_tls_write_packet(tls_build_certificate(context));
+                    context->client_verified = 0;
+                }
                 // client handshake
                 DEBUG_PRINT("<= Building KEY EXCHANGE\n");
                 __private_tls_write_packet(tls_build_client_key_exchange(context));
@@ -3302,23 +3329,35 @@ int tls_load_private_key(TLSContext *context, const unsigned char *pem_buffer, i
 TLSPacket *tls_build_certificate(TLSContext *context) {
     int i;
     unsigned int all_certificate_size = 0;
-    for (i = 0; i < context->certificates_count; i++) {
-        TLSCertificate *cert = context->certificates[i];
+    int certificates_count;
+    TLSCertificate **certificates;
+    if (context->is_server) {
+        certificates_count = context->certificates_count;
+        certificates = context->certificates;
+    } else {
+        certificates_count = context->client_certificates_count;
+        certificates = context->client_certificates;
+    }
+    for (i = 0; i < certificates_count; i++) {
+        TLSCertificate *cert = certificates[i];
         if ((cert) && (cert->der_len))
             all_certificate_size += cert->der_len + 3;
     }
     TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0B);
-    
-    tls_packet_uint24(packet, all_certificate_size + 3);
-    tls_packet_uint24(packet, all_certificate_size);
-    for (i = 0; i < context->certificates_count; i++) {
-        TLSCertificate *cert = context->certificates[i];
-        if ((cert) && (cert->der_len)) {
-            // 2 times -> one certificate
-            tls_packet_uint24(packet, cert->der_len);
-            tls_packet_append(packet, cert->der_bytes, cert->der_len);
+    if (all_certificate_size) {
+        tls_packet_uint24(packet, all_certificate_size + 3);
+        tls_packet_uint24(packet, all_certificate_size);
+        for (i = 0; i < certificates_count; i++) {
+            TLSCertificate *cert = certificates[i];
+            if ((cert) && (cert->der_len)) {
+                // 2 times -> one certificate
+                tls_packet_uint24(packet, cert->der_len);
+                tls_packet_append(packet, cert->der_bytes, cert->der_len);
+            }
         }
+    } else {
+        tls_packet_uint24(packet, all_certificate_size);
     }
     tls_packet_update(packet);
     return packet;
@@ -3751,13 +3790,32 @@ int tls_client_verified(TLSContext *context) {
     if ((!context) || (context->critical_error))
         return 0;
 
-    return context->client_verified;
+    return (context->client_verified == 1);
 }
 
 const char *tls_sni(TLSContext *context) {
     if (!context)
         return NULL;
     return context->sni;
+}
+
+int tls_sni_set(TLSContext *context, const char *sni) {
+    if ((!context) || (context->is_server) || (context->critical_error) || (context->connection_status != 0))
+        return 0;
+    TLS_FREE(context->sni);
+    context->sni = NULL;
+    if (sni) {
+        int len = strlen(sni);
+        if (len > 0) {
+            context->sni = (char *)TLS_MALLOC(len + 1);
+            if (context->sni) {
+                context->sni[len] = 0;
+                memcpy(context->sni, sni, len);
+                return 1;
+            }
+        }
+    }
+    return 0;
 }
 
 #ifdef DEBUG
@@ -3990,6 +4048,10 @@ int SSL_write(TLSContext *context, unsigned char *buf, unsigned int len) {
 int SSL_read(TLSContext *context, unsigned char *buf, unsigned int len) {
     if (!context)
         return TLS_GENERIC_ERROR;
+
+    if (context->application_buffer_len)
+        return tls_read(context, buf, len);
+
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
     if ((!ssl_data) || (ssl_data->fd <= 0) || (context->critical_error))
         return TLS_GENERIC_ERROR;
@@ -4002,13 +4064,14 @@ int SSL_read(TLSContext *context, unsigned char *buf, unsigned int len) {
         int read_size;
         while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
             if (tls_consume_stream(context, client_message, read_size, NULL) > 0) {
-                int read_size = __tls_ssl_private_send_pending(ssl_data->fd, context);
+                __tls_ssl_private_send_pending(ssl_data->fd, context);
                 break;
             }
-            if (context->critical_error)
+            if ((context->critical_error) && (!context->application_buffer_len)) {
                 return TLS_GENERIC_ERROR;
+            }
         }
-        if (read_size < 0)
+        if ((read_size < 0) && (!context->application_buffer_len))
             return read_size;
     }
     
