@@ -159,10 +159,10 @@
 // max 1 second sleep
 #define __TLS_MAX_ERROR_SLEEP_uS    1000000
 
-#define VERSION_SUPPORTED(version, err)  if (version < TLS_V10) { DEBUG_PRINT("UNSUPPORTED TLS VERSION %x\n", (int)version) return err; }
+#define VERSION_SUPPORTED(version, err)  if (version < TLS_V10) { DEBUG_PRINT("UNSUPPORTED TLS VERSION %x\n", (int)version); return err; }
 #define CHECK_SIZE(size, buf_size, err)  if ((size > buf_size) || (buf_size < 0)) return err;
 #define TLS_IMPORT_CHECK_SIZE(buf_pos, size, buf_size) if ((size > buf_size - buf_pos) || (buf_pos > buf_size)) { DEBUG_PRINT("IMPORT ELEMENT SIZE ERROR\n"); tls_destroy_context(context); return NULL; }
-#define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
+#define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { DEBUG_PRINT("* UNEXPECTED MESSAGE\n"); payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
 
 enum {
     KEA_dhe_dss,
@@ -2648,13 +2648,13 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
         switch (write_packets) {
             case 1:
                 // client handshake
-                DEBUG_PRINT("Building KEY EXCHANGE\n");
+                DEBUG_PRINT("<= Building KEY EXCHANGE\n");
                 __private_tls_write_packet(tls_build_client_key_exchange(context));
-                DEBUG_PRINT("Building CHANGE CIPHER SPEC\n");
+                DEBUG_PRINT("<= Building CHANGE CIPHER SPEC\n");
                 __private_tls_write_packet(tls_build_change_cipher_spec(context));
                 context->cipher_spec_set = 1;
                 context->local_sequence_number = 0;
-                DEBUG_PRINT("Building CLIENT FINISHED\n");
+                DEBUG_PRINT("<= Building CLIENT FINISHED\n");
                 __private_tls_write_packet(tls_build_finished(context));
                 context->cipher_spec_set = 0;
                 break;
@@ -2663,10 +2663,15 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 if (context->dtls) {
                     __private_tls_write_packet(tls_build_verify_request(context));
                 } else {
+                    DEBUG_PRINT("<= SENDING SERVER HELLO\n");
                     __private_tls_write_packet(tls_build_hello(context));
+                    DEBUG_PRINT("<= SENDING CERTIFICATE\n");
                     __private_tls_write_packet(tls_build_certificate(context));
-                    if (context->request_client_certificate)
+                    if (context->request_client_certificate) {
+                        DEBUG_PRINT("<= SENDING CERTIFICATE REQUEST\n");
                         __private_tls_write_packet(tls_certificate_request(context));
+                    }
+                    DEBUG_PRINT("<= SENDING DONE\n");
                     __private_tls_write_packet(tls_build_done(context));
                 }
                 break;
