@@ -626,7 +626,7 @@ int __private_tls_verify_rsa(TLSContext *context, unsigned int hash_type, const 
     rsa_free(&key);
     if (err)
         return 0;
-
+    
     return rsa_stat;
 }
 
@@ -1562,7 +1562,7 @@ int __private_tls_update_hash(TLSContext *context, const unsigned char *in, unsi
     
     unsigned char temp[__TLS_MAX_HASH_LEN];
     __private_tls_get_hash(context, temp);
-
+    
     if ((context->request_client_certificate) && (len)) {
         // cache all messages for verification
         int new_len = context->cached_handshake_len + len;
@@ -1599,7 +1599,7 @@ int __private_tls_done_hash(TLSContext *context, unsigned char *hout) {
 int __private_tls_get_hash(TLSContext *context, unsigned char *hout) {
     if (!context)
         return 0;
-
+    
     TLSHash *hash = &context->handshake_hash;
     if (!hash->created)
         return 0;
@@ -1864,6 +1864,15 @@ TLSPacket *tls_build_hello(TLSContext *context) {
             tls_packet_uint16(packet, context->cipher);
             // no compression
             tls_packet_uint8(packet, 0);
+#ifndef STRICT_TLS
+            // extensions size
+            tls_packet_uint16(packet, 5);
+            // secure renegotation
+            // advertise it, but refuse renegotiation
+            tls_packet_uint16(packet, 0xff01);
+            tls_packet_uint16(packet, 1);
+            tls_packet_uint8(packet, 0);
+#endif
         } else {
             // sizeof ciphers (5 ciphers * 2 bytes)
             tls_packet_uint16(packet, 10);
@@ -2010,7 +2019,7 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     
     res += 2;
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
-
+    
 #ifdef TLS_FORCE_CLIENT_VERSION
     if (!context->is_server)
         context->version = version;
@@ -2471,7 +2480,7 @@ int tls_parse_verify(TLSContext *context, const unsigned char *buf, int buf_len)
     CHECK_SIZE(size, bytes_to_follow - 4, TLS_BAD_CERTIFICATE)
     DEBUG_PRINT("ALGORITHM %i/%i (%i)\n", hash, algorithm, (int)size);
     DEBUG_DUMP_HEX_LABEL("VERIFY", &buf[7], bytes_to_follow - 7);
-
+    
     int res = __private_tls_verify_rsa(context, hash, &buf[7], size, context->cached_handshake, context->cached_handshake_len);
     if (context->cached_handshake) {
         // not needed anymore
@@ -2492,6 +2501,11 @@ int tls_parse_verify(TLSContext *context, const unsigned char *buf, int buf_len)
 int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len, tls_validation_function certificate_verify) {
     int res = 1;
     int orig_len = buf_len;
+    if (context->connection_status == 0xFF) {
+        // renegotiation disabled (emit warning alert)
+        __private_tls_write_packet(tls_build_alert(context, 0, no_renegotiation));
+        return 1;
+    }
     while ((buf_len >= 4) && (!context->critical_error)) {
         int payload_res = 0;
         CHECK_SIZE(1, buf_len, TLS_NEED_MORE_DATA)
@@ -2622,10 +2636,10 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
         }
         if (type != 0x00)
             __private_tls_update_hash(context, buf, payload_size + 1);
-    
+        
         if (certificate_verify_alert != no_error)
             __private_tls_write_packet(tls_build_alert(context, 1, certificate_verify_alert));
-    
+        
         if (payload_res < 0) {
             switch (payload_res) {
                 case TLS_UNEXPECTED_MESSAGE:
@@ -2665,7 +2679,7 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
         }
         if (certificate_verify_alert != no_error)
             payload_res = TLS_BAD_CERTIFICATE;
-    
+        
         // except renegotiation
         switch (write_packets) {
             case 1:
@@ -3781,7 +3795,7 @@ int tls_is_broken(TLSContext *context) {
 int tls_request_client_certificate(TLSContext *context) {
     if ((!context) || (!context->is_server))
         return 0;
-
+    
     context->request_client_certificate = 1;
     return 1;
 }
@@ -3789,7 +3803,7 @@ int tls_request_client_certificate(TLSContext *context) {
 int tls_client_verified(TLSContext *context) {
     if ((!context) || (context->critical_error))
         return 0;
-
+    
     return (context->client_verified == 1);
 }
 
@@ -4001,7 +4015,7 @@ int SSL_connect(TLSContext *context) {
     res = __tls_ssl_private_send_pending(ssl_data->fd, context);
     if (res < 0)
         return res;
-
+    
     int read_size;
     unsigned char client_message[0xFFFF];
     while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
@@ -4048,10 +4062,10 @@ int SSL_write(TLSContext *context, unsigned char *buf, unsigned int len) {
 int SSL_read(TLSContext *context, unsigned char *buf, unsigned int len) {
     if (!context)
         return TLS_GENERIC_ERROR;
-
+    
     if (context->application_buffer_len)
         return tls_read(context, buf, len);
-
+    
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
     if ((!ssl_data) || (ssl_data->fd <= 0) || (context->critical_error))
         return TLS_GENERIC_ERROR;
