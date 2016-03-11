@@ -2192,10 +2192,13 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
 
     DEBUG_PRINT("VERSION REQUIRED BY REMOTE %x, VERSION NOW %x\n", (int)version, (int)context->version);
+#ifdef TLS_LEGACY_SUPPORT
+    // when no legacy support, don't downgrade
 #ifndef TLS_FORCE_LOCAL_VERSION
     // downgrade ?
     if (context->version > version)
         context->version = version;
+#endif
 #endif
     memcpy(context->remote_random, &buf[5], __TLS_CLIENT_RANDOM_SIZE);
     
