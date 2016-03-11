@@ -926,7 +926,7 @@ int __private_tls_compute_key(TLSContext *context, unsigned int key_len) {
     TLS_FREE(context->master_key);
     context->master_key_len = 0;
     context->master_key = NULL;
-    if (version >= TLS_V11) {
+    if (version >= TLS_V10) {
         context->master_key = (unsigned char *)TLS_MALLOC(key_len);
         if (!context->master_key)
             return 0;
