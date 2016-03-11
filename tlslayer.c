@@ -42,11 +42,12 @@
 
 #include "tomcrypt/tomcrypt.h"
 
-// #define DEBUG
+#define DEBUG
 
 // define TLS_LEGACY_SUPPORT to support TLS 1.1 (legacy)
 // legacy support it will use an additional 272 bytes / context
 #define TLS_LEGACY_SUPPORT
+// SSL_* style blocking APIs
 #define SSL_COMPATIBLE_INTERFACE
 
 #define TLS_MALLOC(size)        malloc(size)
@@ -710,6 +711,10 @@ void __private_tls_prf( unsigned short version,
                         unsigned char *output, unsigned int outlen, const unsigned char *secret, const unsigned int secret_len,
                         const unsigned char *label, unsigned int label_len, unsigned char *seed, unsigned int seed_len,
                         unsigned char *seed_b, unsigned int seed_b_len) {
+    if ((!secret) || (!secret_len)) {
+        DEBUG_PRINT("NULL SECRET\n");
+        return;
+    }
     if (version < TLS_V12) {
         int md5_hash_idx = find_hash("md5");
         int sha1_hash_idx = find_hash("sha1");
@@ -1423,6 +1428,11 @@ void tls_packet_update(TLSPacket *packet) {
                     
                     if (packet->context->crypto.created == 1) {
                         mac_size = __private_tls_mac_length(packet->context);
+#ifdef TLS_LEGACY_SUPPORT
+                        if (packet->context->version == TLS_V10)
+                            length = packet->len - header_size + mac_size;
+                        else
+#endif
                         length = packet->len - header_size + __TLS_AES_IV_LENGTH + mac_size;
                         padding = block_size - length % block_size;
                         length += padding;
@@ -1440,8 +1450,13 @@ void tls_packet_update(TLSPacket *packet) {
                                 unsigned int buf_pos = 0;
                                 memcpy(ct, packet->buf, 3);
                                 *(unsigned short *)&ct[3] = htons(length);
-                                tls_random(buf, __TLS_AES_IV_LENGTH);
-                                buf_pos += __TLS_AES_IV_LENGTH;
+#ifdef TLS_LEGACY_SUPPORT
+                                if (packet->context->version > TLS_V10)
+#endif
+                                {
+                                    tls_random(buf, __TLS_AES_IV_LENGTH);
+                                    buf_pos += __TLS_AES_IV_LENGTH;
+                                }
                                 // copy payload
                                 memcpy(buf + buf_pos, packet->buf + header_size, packet->len - header_size);
                                 buf_pos += packet->len - header_size;
@@ -3031,10 +3046,17 @@ int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_
             
             DEBUG_DUMP_HEX_LABEL("decrypted", pt, decrypted_length);
             ptr = pt;
+#ifdef TLS_LEGACY_SUPPORT
+            if ((context->version > TLS_V10) && (decrypted_length > __TLS_AES_IV_LENGTH)) {
+                decrypted_length -= __TLS_AES_IV_LENGTH;
+                ptr += __TLS_AES_IV_LENGTH;
+            }
+#else
             if (decrypted_length > __TLS_AES_IV_LENGTH) {
                 decrypted_length -= __TLS_AES_IV_LENGTH;
                 ptr += __TLS_AES_IV_LENGTH;
             }
+#endif
             length = decrypted_length;
             
             int mac_size = __private_tls_mac_length(context);
