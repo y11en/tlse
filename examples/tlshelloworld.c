@@ -175,7 +175,16 @@ int main(int argc , char *argv[]) {
                         char send_buffer[0xF000];
                         char send_buffer_with_header[0xF000];
                         char out_buffer[0xFFF];
-                        snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.2 (used chipher is: %s), SNI: %s\r\nYour identity is: %s\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_cipher_name(context), sni, identity_str, tls_certificate_to_string(server_context->certificates[0], out_buffer, sizeof(out_buffer)), read_buffer, source_buf);
+                        int tls_version = 2;
+                        switch (context->version) {
+                            case TLS_V10:
+                                tls_version = 0;
+                                break;
+                            case TLS_V11:
+                                tls_version = 1;
+                                break;
+                        }
+                        snprintf(send_buffer, sizeof(send_buffer), "Hello world from TLS 1.%i (used chipher is: %s), SNI: %s\r\nYour identity is: %s\r\n\r\nCertificate: %s\r\n\r\nBelow is the received header:\r\n%s\r\nAnd the source code for this example: \r\n\r\n%s", tls_version, tls_cipher_name(context), sni, identity_str, tls_certificate_to_string(server_context->certificates[0], out_buffer, sizeof(out_buffer)), read_buffer, source_buf);
                         int content_length = strlen(send_buffer);
                         snprintf(send_buffer_with_header, sizeof(send_buffer), "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-type: text/plain\r\nContent-length: %i\r\n\r\n%s", content_length, send_buffer);
                         tls_write(context, send_buffer_with_header, strlen(send_buffer_with_header));
