@@ -1,6 +1,6 @@
 # TLSLayer
 
-Single C file TLS 1.2 implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
+Single C file TLS 1.2 (also 1.1) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
 
 Compiling
 ----------
@@ -26,7 +26,7 @@ Features
 
 The main feature of this implementation is the ability to serialize TLS context, via tls_export_context and re-import it, via tls_import_context in another pre-forked worker process (socket descriptor may be sent via sendmsg).
 
-For now it supports only TLS 1.2, RSA + (AES128_CBC, AES_256_CBC, SHA1, SHA256, AES_128_GCM_SHA256). 
+For now it supports TLS 1.2, TLS 1.1 (when TLS_LEGACY_SUPPORT is defined / default is on), RSA + (AES128_CBC, AES_256_CBC, SHA1, SHA256, AES_128_GCM_SHA256). 
 
 It has a low level interface, efficient for non-blocking, asynchronous sockets, and a blocking, libssl-style interface.
 
