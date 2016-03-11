@@ -42,7 +42,7 @@
 
 #include "tomcrypt/tomcrypt.h"
 
-#define DEBUG
+// #define DEBUG
 
 // define TLS_LEGACY_SUPPORT to support TLS 1.1 (legacy)
 // legacy support it will use an additional 272 bytes / context
@@ -2190,12 +2190,13 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     
     res += 2;
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
-    
-#ifdef TLS_FORCE_CLIENT_VERSION
-    if (!context->is_server)
+
+    DEBUG_PRINT("VERSION REQUIRED BY REMOTE %x, VERSION NOW %x\n", (int)version, (int)context->version);
+#ifndef TLS_FORCE_LOCAL_VERSION
+    // downgrade ?
+    if (context->version > version)
         context->version = version;
 #endif
-    
     memcpy(context->remote_random, &buf[5], __TLS_CLIENT_RANDOM_SIZE);
     
     res += __TLS_CLIENT_RANDOM_SIZE;
@@ -3097,7 +3098,7 @@ int tls_parse_message(TLSContext *context, unsigned char *buf, int buf_len, tls_
                 payload_res = TLS_UNEXPECTED_MESSAGE;
                 __private_tls_write_packet(tls_build_alert(context, 1, unexpected_message));
             } else {
-                DEBUG_PRINT("APPLICATION DATA MESSAGE:\n");
+                DEBUG_PRINT("APPLICATION DATA MESSAGE (TLS VERSION: %x):\n", (int)context->version);
                 DEBUG_DUMP(ptr, length);
                 DEBUG_PRINT("\n");
                 __private_tls_write_app_data(context, ptr, length);
