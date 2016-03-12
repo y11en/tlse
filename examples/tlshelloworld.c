@@ -60,6 +60,7 @@ int send_pending(int client_sock, TLSContext *context) {
 }
 
 // verify signature
+// same function used both for verifing server certificate (on client) or signature verify (on server)
 int verify_signature(TLSContext *context, TLSCertificate **certificate_chain, int len) {
     if (len) {
         TLSCertificate *cert = certificate_chain[0];
