@@ -134,6 +134,13 @@
 #define TLS_RSA_WITH_AES_256_GCM_SHA384       0x009D
 
 // forward secrecy
+#define TLS_DHE_RSA_WITH_AES_128_CBC_SHA      0x0033
+#define TLS_DHE_RSA_WITH_AES_256_CBC_SHA      0x0039
+#define TLS_DHE_RSA_WITH_AES_128_CBC_SHA256   0x0067
+#define TLS_DHE_RSA_WITH_AES_256_CBC_SHA256   0x006B
+#define TLS_DHE_RSA_WITH_AES_128_GCM_SHA256   0x009E
+#define TLS_DHE_RSA_WITH_AES_256_GCM_SHA384   0x009F
+
 #define TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA    0xC013
 #define TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA    0xC014
 #define TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 0xC027
@@ -780,6 +787,9 @@ int __private_tls_key_length(TLSContext *context) {
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
         case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
@@ -787,6 +797,9 @@ int __private_tls_key_length(TLSContext *context) {
         case TLS_RSA_WITH_AES_256_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
         case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
             return 32;
@@ -798,6 +811,8 @@ int __private_tls_is_aead(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
             return 1;
@@ -809,16 +824,22 @@ unsigned int __private_tls_mac_length(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
         case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
             return __TLS_SHA1_MAC_SIZE;
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
             return __TLS_SHA256_MAC_SIZE;
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
         case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
             return __TLS_SHA384_MAC_SIZE;
     }
