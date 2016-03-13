@@ -133,6 +133,13 @@
 #define TLS_RSA_WITH_AES_128_GCM_SHA256       0x009C
 #define TLS_RSA_WITH_AES_256_GCM_SHA384       0x009D
 
+// forward secrecy
+#define TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA    0xC013
+#define TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA    0xC014
+#define TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 0xC027
+#define TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 0xC02F
+#define TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 0xC030
+
 #define TLS_UNSUPPORTED_ALGORITHM   0x00
 #define TLS_RSA_SIGN_RSA            0x01
 #define TLS_RSA_SIGN_MD5            0x04
@@ -773,10 +780,15 @@ int __private_tls_key_length(TLSContext *context) {
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
             return 16;
         case TLS_RSA_WITH_AES_256_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
             return 32;
     }
     return 0;
@@ -786,6 +798,8 @@ int __private_tls_is_aead(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
             return 1;
     }
     return 0;
@@ -795,12 +809,17 @@ unsigned int __private_tls_mac_length(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
             return __TLS_SHA1_MAC_SIZE;
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
             return __TLS_SHA256_MAC_SIZE;
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
             return __TLS_SHA384_MAC_SIZE;
     }
     return 0;
