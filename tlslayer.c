@@ -49,6 +49,21 @@
 #define TLS_LEGACY_SUPPORT
 // SSL_* style blocking APIs
 #define SSL_COMPATIBLE_INTERFACE
+// support forward secrecy (Diffie-Hellman ephemeral)
+#define TLS_FORWARD_SECRECY
+
+
+#ifdef TLS_FORWARD_SECRECY
+// ==================================================================================== //
+// tomcrypt private structure needed for Diffie-Hellman ephemeral key export (p and g)
+typedef struct {
+  int size;
+  char *name, *base, *prime;
+} dh_set;
+
+extern const dh_set sets[];
+// ==================================================================================== //
+#endif
 
 #define TLS_MALLOC(size)        malloc(size)
 #define TLS_REALLOC(ptr, size)  realloc(ptr, size)
@@ -125,6 +140,7 @@
 #define __TLS_ASN1_MAXLEVEL         0xFF
 
 #define __TLS_COOKIE_SIZE           0xFF
+#define __TLS_DHE_KEY_SIZE          2048
 
 #define TLS_RSA_WITH_AES_128_CBC_SHA          0x002F
 #define TLS_RSA_WITH_AES_256_CBC_SHA          0x0035
@@ -321,6 +337,7 @@ typedef struct {
     unsigned char is_server;
     TLSCertificate **certificates;
     TLSCertificate *private_key;
+    dh_key *dhe;
     TLSCertificate **client_certificates;
     unsigned int certificates_count;
     unsigned int client_certificates_count;
@@ -442,6 +459,7 @@ TLSPacket *tls_build_verify_request(TLSContext *context);
 int __private_tls_crypto_create(TLSContext *context, int key_length, int iv_length, unsigned char *localkey, unsigned char *localiv, unsigned char *remotekey, unsigned char *remoteiv);
 int __private_tls_get_hash(TLSContext *context, unsigned char *hout);
 int __private_tls_build_random(TLSPacket *packet);
+void __private_tls_dhe_free(TLSContext *context);
 
 
 static unsigned char dependecies_loaded = 0;
@@ -496,6 +514,7 @@ int __private_b64_decode(const char *in_buffer, int in_buffer_size, unsigned cha
 void init_dependencies() {
     if (dependecies_loaded)
         return;
+    DEBUG_PRINT("Initializing dependencies\n");
     dependecies_loaded = 1;
     ltc_mp = ltm_desc;
     
@@ -506,6 +525,45 @@ void init_dependencies() {
     register_hash(&sha512_desc);
     register_hash(&md5_desc);
     register_cipher(&aes_desc);
+}
+
+unsigned char *__private_tls_decrypt_dhe(TLSContext *context, const unsigned char *buffer, unsigned int len, unsigned int *size) {
+    *size = 0;
+    if ((!len) || (!context) || (!context->dhe)) {
+        DEBUG_PRINT("No private DHE key set");
+        return NULL;
+    }
+    unsigned char *out = (unsigned char *)TLS_MALLOC(len);
+    unsigned long out_size = len;
+    void *Yc = NULL;
+
+    if (mp_init(&Yc)) {
+        DEBUG_PRINT("ERROR CREATING Yc\n");
+        return NULL;
+    }
+    if (mp_read_unsigned_bin(Yc, (unsigned char *)buffer, len)) {
+        DEBUG_PRINT("ERROR LOADING DHE Yc\n");
+        mp_clear(Yc);
+        return NULL;
+    }
+    dh_key client_key;
+    memset(&client_key, 0, sizeof(dh_key));
+    client_key.idx = context->dhe->idx;
+    client_key.type = PK_PUBLIC;
+    client_key.y = Yc;
+    int err = dh_shared_secret(context->dhe, &client_key, out, &out_size);
+    dh_free(&client_key);
+    // not needing the dhe key anymore
+    __private_tls_dhe_free(context);
+    if (err) {
+        DEBUG_PRINT("DHE DECRYPT ERROR %i\n", err);
+        TLS_FREE(out);
+        return NULL;
+    }
+    DEBUG_PRINT("OUT_SIZE: %i\n", out_size);
+    DEBUG_DUMP_HEX_LABEL("DHE", out, out_size);
+    *size = out_size;
+    return out;
 }
 
 unsigned char *__private_tls_decrypt_rsa(TLSContext *context, const unsigned char *buffer, unsigned int len, unsigned int *size) {
@@ -530,6 +588,7 @@ unsigned char *__private_tls_decrypt_rsa(TLSContext *context, const unsigned cha
     err = rsa_decrypt_key_ex(buffer, len, out, &out_size, (unsigned char *)"Concept", 7, hash_idx, LTC_LTC_PKCS_1_V1_5, &res, &key);
     rsa_free(&key);
     if ((err) || (!out_size)) {
+        DEBUG_PRINT("RSA DECRYPT ERROR\n");
         TLS_FREE(out);
         return NULL;
     }
@@ -651,6 +710,89 @@ int __private_tls_verify_rsa(TLSContext *context, unsigned int hash_type, const 
         return 0;
     
     return rsa_stat;
+}
+
+int __private_tls_sign_rsa(TLSContext *context, unsigned int hash_type, const unsigned char *message, unsigned int message_len, unsigned char *out, unsigned long *outlen) {
+    if ((!outlen) || (!context) || (!out) || (!outlen) || (!context->private_key) || (!context->private_key->der_bytes) || (!context->private_key->der_len)) {
+        DEBUG_PRINT("No private key set");
+        return TLS_GENERIC_ERROR;
+    }
+    init_dependencies();
+    rsa_key key;
+    int err;
+    err = rsa_import(context->private_key->der_bytes, context->private_key->der_len, &key);
+    
+    if (err) {
+        DEBUG_PRINT("Error inporting RSA certificate (code: %i)", err);
+        return TLS_GENERIC_ERROR;
+    }
+    int hash_idx = -1;
+    unsigned char hash[__TLS_MAX_HASH_LEN];
+    unsigned int hash_len = 0;
+    hash_state state;
+    switch (hash_type) {
+        case md5:
+            hash_idx = find_hash("md5");
+            err = md5_init(&state);
+            if (!err) {
+                err = md5_process(&state, message, message_len);
+                if (!err)
+                    err = md5_done(&state, hash);
+            }
+            hash_len = 16;
+            break;
+        case sha1:
+            hash_idx = find_hash("sha1");
+            err = sha1_init(&state);
+            if (!err) {
+                err = sha1_process(&state, message, message_len);
+                if (!err)
+                    err = sha1_done(&state, hash);
+            }
+            hash_len = 20;
+            break;
+        case sha256:
+            hash_idx = find_hash("sha256");
+            err = sha256_init(&state);
+            if (!err) {
+                err = sha256_process(&state, message, message_len);
+                if (!err)
+                    err = sha256_done(&state, hash);
+            }
+            hash_len = 32;
+            break;
+        case sha384:
+            hash_idx = find_hash("sha384");
+            err = sha384_init(&state);
+            if (!err) {
+                err = sha384_process(&state, message, message_len);
+                if (!err)
+                    err = sha384_done(&state, hash);
+            }
+            hash_len = 48;
+            break;
+        case sha512:
+            hash_idx = find_hash("sha512");
+            err = sha512_init(&state);
+            if (!err) {
+                err = sha512_process(&state, message, message_len);
+                if (!err)
+                    err = sha512_done(&state, hash);
+            }
+            hash_len = 64;
+            break;
+    }
+    if ((hash_idx < 0) || (err)) {
+        DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
+        return TLS_GENERIC_ERROR;
+    }
+    int res = 0;
+    err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_LTC_PKCS_1_V1_5, NULL, find_prng("sprng"), hash_idx, 0, &key);
+    rsa_free(&key);
+    if (err)
+        return 0;
+    
+    return 1;
 }
 
 unsigned int __private_tls_random_int(int limit) {
@@ -1937,6 +2079,19 @@ TLSContext *tls_accept(TLSContext *context) {
     return child;
 }
 
+void __private_tls_dhe_free(TLSContext *context) {
+     if (context->dhe) {
+        dh_free(context->dhe);
+        TLS_FREE(context->dhe);
+        context->dhe = NULL;
+    }
+}
+
+void __private_tls_dhe_create(TLSContext *context) {
+    __private_tls_dhe_free(context);
+    context->dhe = (dh_key *)TLS_MALLOC(sizeof(dh_key));
+}
+
 void tls_destroy_context(TLSContext *context) {
     int i;
     if (!context)
@@ -1971,14 +2126,24 @@ void tls_destroy_context(TLSContext *context) {
     TLS_FREE(context->sni);
     TLS_FREE(context->dtls_cookie);
     TLS_FREE(context->cached_handshake);
+    __private_tls_dhe_create(context);
     TLS_FREE(context);
 }
 
 int tls_cipher_supported(TLSContext *context, unsigned short cipher) {
     switch (cipher) {
+#ifdef TLS_FORWARD_SECRECY
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+#endif
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA:
             return 1;
+#ifdef TLS_FORWARD_SECRECY
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+#endif
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
@@ -1999,49 +2164,72 @@ int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len
     return TLS_NO_COMMON_CIPHER;
 }
 
+int tls_cipher_is_ephemeral(TLSContext *context) {
+    if (context) {
+        switch (context->cipher) {
+            case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+            case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+            case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+            case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+            case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+            case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
+                return 1;
+            case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
+            case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+            case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+            case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+            case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+                return 2;
+        }
+    }
+    return 0;
+}
+
 const char *tls_cipher_name(TLSContext *context) {
-    switch (context->cipher) {
-        case TLS_RSA_WITH_AES_128_CBC_SHA:
-            return "RSA-AES128CBC-SHA";
-        case TLS_RSA_WITH_AES_256_CBC_SHA:
-            return "RSA-AES256CBC-SHA";
-        case TLS_RSA_WITH_AES_128_CBC_SHA256:
-            return "RSA-AES128CBC-SHA256";
-        case TLS_RSA_WITH_AES_256_CBC_SHA256:
-            return "RSA-AES256CBC-SHA256";
-        case TLS_RSA_WITH_AES_128_GCM_SHA256:
-            return "RSA-AES128GCM-SHA256";
-        case TLS_RSA_WITH_AES_256_GCM_SHA384:
-            return "RSA-AES256GCM-SHA384";
-        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
-            return "DHE-RSA-AES256GCM-SHA384";
-        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
-            return "DHE-RSA-AES256CBC-SHA";
-        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
-            return "DHE-RSA-AES128CBC-SHA256";
-        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
-            return "DHE-RSA-AES256CBC-SHA256";
-        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
-            return "DHE-RSA-AES128GCM-SHA256";
-        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
-            return "DHE-RSA-AES256GCM-SHA256";
-        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
-            return "ECDHE-RSA-AES128CBC-SHA";
-        case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
-            return "ECDHE-RSA-AES256CBC-SHA";
-        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
-            return "ECDHE-RSA-AES128CBC-SHA256";
-        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
-            return "ECDHE-RSA-AES128GCM-SHA256";
-        case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
-            return "ECDHE-RSA-AES256GCM-SHA384";
+    if (context) {
+        switch (context->cipher) {
+            case TLS_RSA_WITH_AES_128_CBC_SHA:
+                return "RSA-AES128CBC-SHA";
+            case TLS_RSA_WITH_AES_256_CBC_SHA:
+                return "RSA-AES256CBC-SHA";
+            case TLS_RSA_WITH_AES_128_CBC_SHA256:
+                return "RSA-AES128CBC-SHA256";
+            case TLS_RSA_WITH_AES_256_CBC_SHA256:
+                return "RSA-AES256CBC-SHA256";
+            case TLS_RSA_WITH_AES_128_GCM_SHA256:
+                return "RSA-AES128GCM-SHA256";
+            case TLS_RSA_WITH_AES_256_GCM_SHA384:
+                return "RSA-AES256GCM-SHA384";
+            case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+                return "DHE-RSA-AES128CBC-SHA";
+            case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+                return "DHE-RSA-AES256CBC-SHA";
+            case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+                return "DHE-RSA-AES128CBC-SHA256";
+            case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+                return "DHE-RSA-AES256CBC-SHA256";
+            case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+                return "DHE-RSA-AES128GCM-SHA256";
+            case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
+                return "DHE-RSA-AES256GCM-SHA256";
+            case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
+                return "ECDHE-RSA-AES128CBC-SHA";
+            case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+                return "ECDHE-RSA-AES256CBC-SHA";
+            case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+                return "ECDHE-RSA-AES128CBC-SHA256";
+            case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+                return "ECDHE-RSA-AES128GCM-SHA256";
+            case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+                return "ECDHE-RSA-AES256GCM-SHA384";
+        }
     }
     return "UNKNOWN";
 }
 
 TLSPacket *tls_build_client_key_exchange(TLSContext *context) {
     if (context->is_server) {
-        DEBUG_PRINT("CANNOT BUILD KEY EXCHANGE MESSAGE FOR SERVERS\n");
+        DEBUG_PRINT("CANNOT BUILD CLIENT KEY EXCHANGE MESSAGE FOR SERVERS\n");
         return NULL;
     }
     
@@ -2049,6 +2237,169 @@ TLSPacket *tls_build_client_key_exchange(TLSContext *context) {
     tls_packet_uint8(packet, 0x10);
     __private_tls_build_random(packet);
     context->connection_status = 2;
+    tls_packet_update(packet);
+    return packet;
+}
+
+#ifdef TLS_FORWARD_SECRECY
+int __private_tls_dh_export_pqY(unsigned char *pbuf, unsigned long *plen, unsigned char *gbuf, unsigned long *glen, unsigned char *Ybuf, unsigned long *Ylen, dh_key *key) {
+    unsigned long len;
+    int err;
+    void *p, *g;
+
+    if ((pbuf  == NULL) || (plen  == NULL) || (gbuf == NULL) || (glen == NULL) || (Ybuf == NULL) || (Ylen == NULL) || (key == NULL))
+        return TLS_GENERIC_ERROR;
+
+    if (key->type != PK_PRIVATE)
+        return TLS_GENERIC_ERROR;
+
+    len = mp_unsigned_bin_size(key->y);
+    if (len > *Ylen)
+        return TLS_GENERIC_ERROR;
+
+    if ((err = mp_to_unsigned_bin(key->y, Ybuf)) != CRYPT_OK)
+        return err;
+
+    *Ylen = len;
+
+    if ((err = mp_init_multi(&p, &g, NULL)) != CRYPT_OK)
+        return err;
+
+    if ((err = mp_read_radix(g, sets[key->idx].base, 64)) != CRYPT_OK) {
+        mp_clear_multi(p, g, NULL);
+        return err;
+    }
+
+    if ((err = mp_read_radix(p, sets[key->idx].prime, 64)) != CRYPT_OK) {
+        mp_clear_multi(p, g, NULL);
+        return err;
+    }
+
+    len = mp_unsigned_bin_size(p);
+    if (len > *plen) {
+        mp_clear_multi(p, g, NULL);
+        return TLS_GENERIC_ERROR;
+    }
+
+    if ((err = mp_to_unsigned_bin(p, pbuf)) != CRYPT_OK) {
+        mp_clear_multi(p, g, NULL);
+        return err;
+    }
+    *plen = len;
+
+    len = mp_unsigned_bin_size(g);
+    if (len > *glen) {
+        mp_clear_multi(p, g, NULL);
+        return TLS_GENERIC_ERROR;
+    }
+
+    if ((err = mp_to_unsigned_bin(g, gbuf)) != CRYPT_OK) {
+        mp_clear_multi(p, g, NULL);
+        return err;
+    }
+    *glen = len;
+
+    mp_clear_multi(p, g, NULL);
+    return 0;
+}
+#endif
+
+TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
+    if (!context->is_server) {
+        DEBUG_PRINT("CANNOT BUILD SERVER KEY EXCHANGE MESSAGE FOR CLIENTS\n");
+        return NULL;
+    }
+    
+    TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
+    tls_packet_uint8(packet, 0x0C);
+    unsigned char dummy[3];
+    tls_packet_append(packet, dummy, 3);
+    int start_len = packet->len;
+#ifdef TLS_FORWARD_SECRECY
+    if (method == KEA_dhe_rsa) {
+        init_dependencies();
+        __private_tls_dhe_create(context);
+
+        static prng_state dh_prng_state;
+        if (dh_make_key(&dh_prng_state, find_prng("sprng"), __TLS_DHE_KEY_SIZE / 8, context->dhe)) {
+            DEBUG_PRINT("ERROR CREATING DHE KEY\n");
+            TLS_FREE(packet);
+            TLS_FREE(context->dhe);
+            context->dhe = NULL;
+            return NULL;
+        }
+
+        unsigned char dh_Ys[0xFFF];
+        unsigned char dh_p[0xFFF];
+        unsigned char dh_g[0xFFF];
+        unsigned long dh_p_len = sizeof(dh_p);
+        unsigned long dh_g_len = sizeof(dh_g);
+        unsigned long dh_Ys_len = sizeof(dh_Ys);
+
+        if (__private_tls_dh_export_pqY(dh_p, &dh_p_len, dh_g, &dh_g_len, dh_Ys, &dh_Ys_len, context->dhe)) {
+            DEBUG_PRINT("ERROR EXPORTING DHE KEY\n");
+            TLS_FREE(packet);
+            return NULL;
+        }
+        DEBUG_PRINT("LEN: %i (%i, %i)\n", dh_Ys_len, dh_p_len, dh_g_len);
+        DEBUG_DUMP_HEX_LABEL("DHE PK", dh_Ys, dh_Ys_len);
+        DEBUG_DUMP_HEX_LABEL("DHE P", dh_p, dh_p_len);
+        DEBUG_DUMP_HEX_LABEL("DHE G", dh_g, dh_g_len);
+
+        tls_packet_uint16(packet, dh_p_len);
+        tls_packet_append(packet, dh_p, dh_p_len);
+
+        tls_packet_uint16(packet, dh_g_len);
+        tls_packet_append(packet, dh_g, dh_g_len);
+
+        tls_packet_uint16(packet, dh_Ys_len);
+        tls_packet_append(packet, dh_Ys, dh_Ys_len);
+        //dh_p
+        //dh_g
+        //dh_Ys
+
+        if (context->version >= TLS_V12) {
+            unsigned int params_len = packet->len - start_len;
+            // signature
+            unsigned int message_len = params_len + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE;
+            unsigned char *message = (unsigned char *)TLS_MALLOC(message_len);
+            if (message) {
+                unsigned char out[__TLS_MAX_RSA_KEY];
+                unsigned long out_len = __TLS_MAX_RSA_KEY;
+
+                tls_packet_uint8(packet, sha1);
+                tls_packet_uint8(packet, rsa_sign);
+
+                memcpy(message, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
+                memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->local_random, __TLS_SERVER_RANDOM_SIZE);
+                memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet->buf + start_len, params_len);
+                if (__private_tls_sign_rsa(context, sha1, message, message_len, out, &out_len) == 1) {
+                    DEBUG_PRINT("Signing OK! (length %i)\n", out_len);
+                    tls_packet_uint16(packet, out_len);
+                    tls_packet_append(packet, out, out_len);
+                }
+                TLS_FREE(message);
+            }
+        }
+    } else 
+#endif
+    {
+        TLS_FREE(packet);
+        DEBUG_PRINT("Unsupported ephemeral method: %i\n", method);
+        return NULL;
+    }
+    // signature
+    if ((!packet->broken) && (packet->buf)) {
+        int remaining = packet->len - start_len;
+        int payload_pos = 6;
+        if (context->dtls)
+            payload_pos = 11;
+        packet->buf[payload_pos] = remaining / 0x10000;
+        remaining %= 0x10000;
+        packet->buf[payload_pos + 1] = remaining / 0x100;
+        remaining %= 0x100;
+        packet->buf[payload_pos + 2] = remaining;
+    }
     tls_packet_update(packet);
     return packet;
 }
@@ -2263,7 +2614,6 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
 #endif
 #endif
     memcpy(context->remote_random, &buf[5], __TLS_CLIENT_RANDOM_SIZE);
-    
     res += __TLS_CLIENT_RANDOM_SIZE;
     
     unsigned char session_len = buf[res++];
@@ -2302,13 +2652,16 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
         context->cipher = cipher;
         if (!tls_cipher_supported(context, cipher)) {
             context->cipher = 0;
+            DEBUG_PRINT("NO CIPHER SUPPORTED\n");
             return TLS_NO_COMMON_CIPHER;
         }
         DEBUG_PRINT("CIPHER: %s\n", tls_cipher_name(context));
         CHECK_SIZE(1, buf_len - res, TLS_NEED_MORE_DATA)
         unsigned char compression = buf[res++];
-        if (compression != 0)
+        if (compression != 0) {
+            DEBUG_PRINT("COMPRESSION NOT SUPPORTED\n");
             return TLS_COMPRESSION_NOT_SUPPORTED;
+        }
     }
     
     if (res > 0) {
@@ -2452,7 +2805,16 @@ int __private_tls_parse_random(TLSContext *context, const unsigned char *buf, in
     res += 2;
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA)
     unsigned int out_len = 0;
-    unsigned char *random = __private_tls_decrypt_rsa(context, &buf[res], size, &out_len);
+    unsigned char *random = NULL;
+    int ephemeral = tls_cipher_is_ephemeral(context);
+    switch (ephemeral) {
+        case 1:
+            random = __private_tls_decrypt_dhe(context, &buf[res], size, &out_len);
+            break;
+        default:
+            random = __private_tls_decrypt_rsa(context, &buf[res], size, &out_len);
+    }
+
     if ((random) && (out_len > 2)) {
         // *(unsigned short *)&random[0] = htons(context->version);
         DEBUG_DUMP_HEX_LABEL("PRE MASTER KEY", random, out_len);
@@ -2521,12 +2883,12 @@ int tls_parse_server_key_exchange(TLSContext *context, const unsigned char *buf,
     
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
-    
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
     if (!size)
         return res;
     
+    DEBUG_DUMP_HEX_LABEL("BYTES", buf, buf_len);
     unsigned char has_ds_params = 0;
     /*unsigned char key_exchange_algorithm = buf[res++];
      switch (key_exchange_algorithm) {
@@ -2953,6 +3315,11 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                     __private_tls_write_packet(tls_build_hello(context));
                     DEBUG_PRINT("<= SENDING CERTIFICATE\n");
                     __private_tls_write_packet(tls_build_certificate(context));
+                    int ephemeral_cipher = tls_cipher_is_ephemeral(context);
+                    if (ephemeral_cipher) {
+                        DEBUG_PRINT("<= SENDING EPHEMERAL DH KEY\n");
+                        __private_tls_write_packet(tls_build_server_key_exchange(context, ephemeral_cipher == 1 ? KEA_dhe_rsa : KEA_ec_diffie_hellman));
+                    }
                     if (context->request_client_certificate) {
                         DEBUG_PRINT("<= SENDING CERTIFICATE REQUEST\n");
                         __private_tls_write_packet(tls_certificate_request(context));
