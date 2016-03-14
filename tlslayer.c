@@ -2404,43 +2404,63 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         //dh_p
         //dh_g
         //dh_Ys
-
-        unsigned int params_len = packet->len - start_len;
-        // signature
-        unsigned int message_len = params_len + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE;
-        unsigned char *message = (unsigned char *)TLS_MALLOC(message_len);
-        if (message) {
-            unsigned char out[__TLS_MAX_RSA_KEY];
-            unsigned long out_len = __TLS_MAX_RSA_KEY;
-
-            int hash_algorithm;
-            if (context->version < TLS_V12) {
-                hash_algorithm = __md5_sha1;
-            } else {
-                hash_algorithm = sha1;
-                tls_packet_uint8(packet, sha1);
-                tls_packet_uint8(packet, rsa_sign);
-            }
-
-            memcpy(message, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
-            memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->local_random, __TLS_SERVER_RANDOM_SIZE);
-            memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet->buf + start_len, params_len);
-
-            if (__private_tls_sign_rsa(context, hash_algorithm, message, message_len, out, &out_len) == 1) {
-                DEBUG_PRINT("Signing OK! (length %i)\n", out_len);
-                tls_packet_uint16(packet, out_len);
-                tls_packet_append(packet, out, out_len);
-            }
-            TLS_FREE(message);
-        }
     } else 
+    /* Work in progress
+    if (method == KEA_ec_diffie_hellman) {
+        init_dependencies();
+        ecc_key key;
+        if (ecc_make_key(NULL, find_prng("sprng"), 24, &key)) {
+            DEBUG_PRINT("Error generatic ECC key\n");
+            TLS_FREE(packet);
+            return NULL;
+        }
+        unsigned char out[__TLS_MAX_RSA_KEY];
+        unsigned long out_len = __TLS_MAX_RSA_KEY;
+        if (ecc_export(out, &out_len, PK_PUBLIC, &key)) {
+            DEBUG_PRINT("Error exporting ECC key\n");
+            TLS_FREE(packet);
+            return NULL;
+        }
+        tls_packet_uint16(packet, out_len);
+        tls_packet_append(packet, out, out_len);
+        ecc_free(&key);
+    } else*/
 #endif
     {
         TLS_FREE(packet);
         DEBUG_PRINT("Unsupported ephemeral method: %i\n", method);
         return NULL;
     }
+
     // signature
+    unsigned int params_len = packet->len - start_len;
+    unsigned int message_len = params_len + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE;
+    unsigned char *message = (unsigned char *)TLS_MALLOC(message_len);
+    if (message) {
+        unsigned char out[__TLS_MAX_RSA_KEY];
+        unsigned long out_len = __TLS_MAX_RSA_KEY;
+
+        int hash_algorithm;
+        if (context->version < TLS_V12) {
+            hash_algorithm = __md5_sha1;
+        } else {
+            hash_algorithm = sha1;
+            tls_packet_uint8(packet, sha1);
+            tls_packet_uint8(packet, rsa_sign);
+        }
+
+        memcpy(message, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
+        memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->local_random, __TLS_SERVER_RANDOM_SIZE);
+        memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet->buf + start_len, params_len);
+
+        if (__private_tls_sign_rsa(context, hash_algorithm, message, message_len, out, &out_len) == 1) {
+            DEBUG_PRINT("Signing OK! (length %i)\n", out_len);
+            tls_packet_uint16(packet, out_len);
+            tls_packet_append(packet, out, out_len);
+        }
+        TLS_FREE(message);
+    }
+
     if ((!packet->broken) && (packet->buf)) {
         int remaining = packet->len - start_len;
         int payload_pos = 6;
