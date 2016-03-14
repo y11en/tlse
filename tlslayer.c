@@ -44,7 +44,7 @@
 
 // #define DEBUG
 
-// define TLS_LEGACY_SUPPORT to support TLS 1.1 (legacy)
+// define TLS_LEGACY_SUPPORT to support TLS 1.1/1.0 (legacy)
 // legacy support it will use an additional 272 bytes / context
 #define TLS_LEGACY_SUPPORT
 // SSL_* style blocking APIs
@@ -183,10 +183,8 @@ extern const dh_set sets[];
 #define TLS_ALERT_WARNING           0x01
 #define TLS_ALERT_CRITICAL          0x02
 
-#define __TLS_HASH_INIT   sha256_init
-#define __TLS_HASH_UPDATE sha256_process
-#define __TLS_HASH_DONE   sha256_done
-#define __TLS_HASH_SIZE   32
+#define __TLS_MAX_SHA_SIZE 48
+
 #define __TLS_V11_HASH_SIZE 36      // 16(md5) + 20(sha1)
 #define __TLS_MAX_HASH_SIZE __TLS_V11_HASH_SIZE
 #define __TLS_MAX_RSA_KEY   2048    // 16kbits
@@ -256,7 +254,8 @@ enum {
     sha224 = 3,
     sha256 = 4,
     sha384 = 5,
-    sha512 = 6
+    sha512 = 6,
+    __md5_sha1 = 255
 } TLSHashAlgorithm;
 
 enum {
@@ -460,7 +459,7 @@ int __private_tls_crypto_create(TLSContext *context, int key_length, int iv_leng
 int __private_tls_get_hash(TLSContext *context, unsigned char *hout);
 int __private_tls_build_random(TLSPacket *packet);
 void __private_tls_dhe_free(TLSContext *context);
-
+unsigned int __private_tls_mac_length(TLSContext *context);
 
 static unsigned char dependecies_loaded = 0;
 // not supported
@@ -781,6 +780,23 @@ int __private_tls_sign_rsa(TLSContext *context, unsigned int hash_type, const un
             }
             hash_len = 64;
             break;
+        case __md5_sha1:
+            hash_idx = find_hash("md5");
+            err = md5_init(&state);
+            if (!err) {
+                err = md5_process(&state, message, message_len);
+                if (!err)
+                    err = md5_done(&state, hash);
+            }
+            hash_idx = find_hash("sha1");
+            err = sha1_init(&state);
+            if (!err) {
+                err = sha1_process(&state, message, message_len);
+                if (!err)
+                    err = sha1_done(&state, hash + 16);
+            }
+            hash_len = 36;
+            break;
     }
     if ((hash_idx < 0) || (err)) {
         DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
@@ -863,7 +879,7 @@ void __private_tls_prf_helper(  int hash_idx, unsigned char *output, unsigned in
     }
 }
 
-void __private_tls_prf( unsigned short version,
+void __private_tls_prf(TLSContext *context,
                        unsigned char *output, unsigned int outlen, const unsigned char *secret, const unsigned int secret_len,
                        const unsigned char *label, unsigned int label_len, unsigned char *seed, unsigned int seed_len,
                        unsigned char *seed_b, unsigned int seed_b_len) {
@@ -871,7 +887,7 @@ void __private_tls_prf( unsigned short version,
         DEBUG_PRINT("NULL SECRET\n");
         return;
     }
-    if (version < TLS_V12) {
+    if (context->version < TLS_V12) {
         int md5_hash_idx = find_hash("md5");
         int sha1_hash_idx = find_hash("sha1");
         int half_secret = (secret_len + 1) / 2;
@@ -884,7 +900,13 @@ void __private_tls_prf( unsigned short version,
         unsigned char digest_out0[__TLS_MAX_HASH_LEN];
         unsigned char digest_out1[__TLS_MAX_HASH_LEN];
         unsigned long dlen = 32;
-        int hash_idx = find_hash("sha256");
+        int hash_idx;
+        int mac_length = __private_tls_mac_length(context);
+        if (mac_length == __TLS_SHA384_MAC_SIZE) {
+            hash_idx = find_hash("sha384");
+            dlen = mac_length;
+        } else
+            hash_idx = find_hash("sha256");
         int i;
         hmac_state hmac;
         
@@ -1001,15 +1023,15 @@ int __private_tls_expand_key(TLSContext *context) {
         return 0;
     
     if (context->is_server)
-        __private_tls_prf(context->version, key, sizeof(key), context->master_key, context->master_key_len, (unsigned char *)"key expansion", 13, context->local_random, __TLS_SERVER_RANDOM_SIZE, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
+        __private_tls_prf(context, key, sizeof(key), context->master_key, context->master_key_len, (unsigned char *)"key expansion", 13, context->local_random, __TLS_SERVER_RANDOM_SIZE, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
     else
-        __private_tls_prf(context->version, key, sizeof(key), context->master_key, context->master_key_len, (unsigned char *)"key expansion", 13, context->remote_random, __TLS_SERVER_RANDOM_SIZE, context->local_random, __TLS_CLIENT_RANDOM_SIZE);
+        __private_tls_prf(context, key, sizeof(key), context->master_key, context->master_key_len, (unsigned char *)"key expansion", 13, context->remote_random, __TLS_SERVER_RANDOM_SIZE, context->local_random, __TLS_CLIENT_RANDOM_SIZE);
     
     DEBUG_DUMP_HEX_LABEL("LOCAL RANDOM ", context->local_random, __TLS_SERVER_RANDOM_SIZE);
     DEBUG_DUMP_HEX_LABEL("REMOTE RANDOM", context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
-    //DEBUG_PRINT("\n=========== EXPANSION ===========\n");
-    //DEBUG_DUMP_HEX(key, __TLS_MAX_KEY_EXPANSION_SIZE);
-    //DEBUG_PRINT("\n");
+    DEBUG_PRINT("\n=========== EXPANSION ===========\n");
+    DEBUG_DUMP_HEX(key, __TLS_MAX_KEY_EXPANSION_SIZE);
+    DEBUG_PRINT("\n");
     
     unsigned char *clientkey = NULL;
     unsigned char *serverkey = NULL;
@@ -1114,7 +1136,7 @@ int __private_tls_compute_key(TLSContext *context, unsigned int key_len) {
             return 0;
         context->master_key_len = key_len;
         if (context->is_server) {
-            __private_tls_prf(context->version,
+            __private_tls_prf(context,
                               context->master_key, context->master_key_len,
                               context->premaster_key, context->premaster_key_len,
                               master_secret_label, 13,
@@ -1122,7 +1144,7 @@ int __private_tls_compute_key(TLSContext *context, unsigned int key_len) {
                               context->local_random, __TLS_SERVER_RANDOM_SIZE
                               );
         } else {
-            __private_tls_prf(context->version,
+            __private_tls_prf(context,
                               context->master_key, context->master_key_len,
                               context->premaster_key, context->premaster_key_len,
                               master_secret_label, 13,
@@ -1825,11 +1847,18 @@ void __private_tls_create_hash(TLSContext *context) {
     
     TLSHash *hash = __private_tls_ensure_hash(context);
     if (context->version >= TLS_V12) {
+        int hash_size = __private_tls_mac_length(context);
         if (hash->created) {
-            unsigned char temp[__TLS_HASH_SIZE];
-            __TLS_HASH_DONE(&hash->hash, temp);
+            unsigned char temp[__TLS_MAX_SHA_SIZE];
+            if (hash_size == __TLS_SHA384_MAC_SIZE)
+                sha384_done(&hash->hash, temp);
+            else
+                sha256_done(&hash->hash, temp);
         }
-        __TLS_HASH_INIT(&hash->hash);
+        if (hash_size == __TLS_SHA384_MAC_SIZE)
+            sha384_init(&hash->hash);
+        else
+            sha256_init(&hash->hash);
         hash->created = 1;
     } else {
 #ifdef TLS_LEGACY_SUPPORT
@@ -1854,7 +1883,13 @@ int __private_tls_update_hash(TLSContext *context, const unsigned char *in, unsi
         if (!hash->created)
             __private_tls_create_hash(context);
         
-        __TLS_HASH_UPDATE(&hash->hash, in, len);
+        int hash_size = __private_tls_mac_length(context);
+        if (hash_size == __TLS_SHA384_MAC_SIZE) {
+            sha384_process(&hash->hash, in, len);
+        } else {
+            sha256_process(&hash->hash, in, len);
+            hash_size = __TLS_SHA256_MAC_SIZE;
+        }
     } else {
 #ifdef TLS_LEGACY_SUPPORT
         if (!hash->created)
@@ -1886,11 +1921,17 @@ int __private_tls_done_hash(TLSContext *context, unsigned char *hout) {
     
     int hash_size = 0;
     if (context->version >= TLS_V12) {
-        unsigned char temp[__TLS_HASH_SIZE];
+        unsigned char temp[__TLS_MAX_SHA_SIZE];
         if (!hout)
             hout = temp;
-        __TLS_HASH_DONE(&hash->hash, hout);
-        hash_size = __TLS_HASH_SIZE;
+        //__TLS_HASH_DONE(&hash->hash, hout);
+        hash_size = __private_tls_mac_length(context);
+        if (hash_size == __TLS_SHA384_MAC_SIZE)
+            sha384_done(&hash->hash, hout);
+        else {
+            sha256_done(&hash->hash, hout);
+            hash_size = __TLS_SHA256_MAC_SIZE;
+        }
     } else {
 #ifdef TLS_LEGACY_SUPPORT
         // TLS_V11
@@ -1922,11 +1963,16 @@ int __private_tls_get_hash(TLSContext *context, unsigned char *hout) {
     
     int hash_size = 0;
     if (context->version >= TLS_V12) {
+        hash_size = __private_tls_mac_length(context);
         hash_state prec;
         memcpy(&prec, &hash->hash, sizeof(hash_state));
-        __TLS_HASH_DONE(&hash->hash, hout);
+        if (hash_size == __TLS_SHA384_MAC_SIZE)
+            sha384_done(&hash->hash, hout);
+        else {
+            hash_size = __TLS_SHA256_MAC_SIZE;
+            sha256_done(&hash->hash, hout);
+        }
         memcpy(&hash->hash, &prec, sizeof(hash_state));
-        hash_size = __TLS_HASH_SIZE;
     } else {
 #ifdef TLS_LEGACY_SUPPORT
         // TLS_V11
@@ -2132,21 +2178,21 @@ void tls_destroy_context(TLSContext *context) {
 
 int tls_cipher_supported(TLSContext *context, unsigned short cipher) {
     switch (cipher) {
-#ifdef TLS_FORWARD_SECRECY
-        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
-        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
-#endif
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA:
             return 1;
 #ifdef TLS_FORWARD_SECRECY
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
 #endif
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_RSA_WITH_AES_256_GCM_SHA384:
             if (context->version >= TLS_V12)
                 return 1;
             return 0;
@@ -2211,7 +2257,7 @@ const char *tls_cipher_name(TLSContext *context) {
             case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
                 return "DHE-RSA-AES128GCM-SHA256";
             case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
-                return "DHE-RSA-AES256GCM-SHA256";
+                return "DHE-RSA-AES256GCM-SHA384";
             case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
                 return "ECDHE-RSA-AES128CBC-SHA";
             case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
@@ -2341,6 +2387,7 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
             TLS_FREE(packet);
             return NULL;
         }
+
         DEBUG_PRINT("LEN: %i (%i, %i)\n", dh_Ys_len, dh_p_len, dh_g_len);
         DEBUG_DUMP_HEX_LABEL("DHE PK", dh_Ys, dh_Ys_len);
         DEBUG_DUMP_HEX_LABEL("DHE P", dh_p, dh_p_len);
@@ -2358,28 +2405,33 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         //dh_g
         //dh_Ys
 
-        if (context->version >= TLS_V12) {
-            unsigned int params_len = packet->len - start_len;
-            // signature
-            unsigned int message_len = params_len + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE;
-            unsigned char *message = (unsigned char *)TLS_MALLOC(message_len);
-            if (message) {
-                unsigned char out[__TLS_MAX_RSA_KEY];
-                unsigned long out_len = __TLS_MAX_RSA_KEY;
+        unsigned int params_len = packet->len - start_len;
+        // signature
+        unsigned int message_len = params_len + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE;
+        unsigned char *message = (unsigned char *)TLS_MALLOC(message_len);
+        if (message) {
+            unsigned char out[__TLS_MAX_RSA_KEY];
+            unsigned long out_len = __TLS_MAX_RSA_KEY;
 
+            int hash_algorithm;
+            if (context->version < TLS_V12) {
+                hash_algorithm = __md5_sha1;
+            } else {
+                hash_algorithm = sha1;
                 tls_packet_uint8(packet, sha1);
                 tls_packet_uint8(packet, rsa_sign);
-
-                memcpy(message, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
-                memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->local_random, __TLS_SERVER_RANDOM_SIZE);
-                memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet->buf + start_len, params_len);
-                if (__private_tls_sign_rsa(context, sha1, message, message_len, out, &out_len) == 1) {
-                    DEBUG_PRINT("Signing OK! (length %i)\n", out_len);
-                    tls_packet_uint16(packet, out_len);
-                    tls_packet_append(packet, out, out_len);
-                }
-                TLS_FREE(message);
             }
+
+            memcpy(message, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
+            memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->local_random, __TLS_SERVER_RANDOM_SIZE);
+            memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet->buf + start_len, params_len);
+
+            if (__private_tls_sign_rsa(context, hash_algorithm, message, message_len, out, &out_len) == 1) {
+                DEBUG_PRINT("Signing OK! (length %i)\n", out_len);
+                tls_packet_uint16(packet, out_len);
+                tls_packet_append(packet, out, out_len);
+            }
+            TLS_FREE(message);
         }
     } else 
 #endif
@@ -3041,9 +3093,9 @@ int tls_parse_finished(TLSContext *context, const unsigned char *buf, int buf_le
     unsigned int hash_len = __private_tls_get_hash(context, hash);
     // server verifies client's message
     if (context->is_server)
-        __private_tls_prf(context->version, out, size, context->master_key, context->master_key_len, (unsigned char *)"client finished", 15, hash, hash_len, NULL, 0);
+        __private_tls_prf(context, out, size, context->master_key, context->master_key_len, (unsigned char *)"client finished", 15, hash, hash_len, NULL, 0);
     else
-        __private_tls_prf(context->version, out, size, context->master_key, context->master_key_len, (unsigned char *)"server finished", 15, hash, hash_len, NULL, 0);
+        __private_tls_prf(context, out, size, context->master_key, context->master_key_len, (unsigned char *)"server finished", 15, hash, hash_len, NULL, 0);
     
     //unsigned char hash2[__TLS_HASH_SIZE];
     //hash_len = __private_tls_get_hash(context, hash2);
@@ -3349,10 +3401,10 @@ unsigned int __private_tls_hmac_message(unsigned char local, TLSContext *context
     if (mac_size == __TLS_SHA1_MAC_SIZE)
         hash_idx = find_hash("sha1");
     else
-        if (mac_size == __TLS_SHA384_MAC_SIZE)
-            hash_idx = find_hash("sha384");
-        else
-            hash_idx = find_hash("sha256");
+    if (mac_size == __TLS_SHA384_MAC_SIZE)
+        hash_idx = find_hash("sha384");
+    else
+        hash_idx = find_hash("sha256");
     
     if (hmac_init(&hash, hash_idx, local ? context->crypto.local_mac : context->crypto.remote_mac, mac_size))
         return 0;
@@ -4027,11 +4079,11 @@ TLSPacket *tls_build_finished(TLSContext *context) {
     // server verifies client's message
     if (context->is_server) {
         hash_len = __private_tls_done_hash(context, hash);
-        __private_tls_prf(context->version, out, __TLS_MIN_FINISHED_OPAQUE_LEN, context->master_key, context->master_key_len, (unsigned char *)"server finished", 15, hash, hash_len, NULL, 0);
+        __private_tls_prf(context, out, __TLS_MIN_FINISHED_OPAQUE_LEN, context->master_key, context->master_key_len, (unsigned char *)"server finished", 15, hash, hash_len, NULL, 0);
         __private_tls_destroy_hash(context);
     } else {
         hash_len = __private_tls_get_hash(context, hash);
-        __private_tls_prf(context->version, out, __TLS_MIN_FINISHED_OPAQUE_LEN, context->master_key, context->master_key_len, (unsigned char *)"client finished", 15, hash, hash_len, NULL, 0);
+        __private_tls_prf(context, out, __TLS_MIN_FINISHED_OPAQUE_LEN, context->master_key, context->master_key_len, (unsigned char *)"client finished", 15, hash, hash_len, NULL, 0);
     }
     tls_packet_append(packet, out, __TLS_MIN_FINISHED_OPAQUE_LEN);
     tls_packet_update(packet);
