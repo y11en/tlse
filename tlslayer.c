@@ -2002,17 +2002,39 @@ int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len
 const char *tls_cipher_name(TLSContext *context) {
     switch (context->cipher) {
         case TLS_RSA_WITH_AES_128_CBC_SHA:
-            return "AES128CBC-SHA";
+            return "RSA-AES128CBC-SHA";
         case TLS_RSA_WITH_AES_256_CBC_SHA:
-            return "AES256CBC-SHA";
+            return "RSA-AES256CBC-SHA";
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
-            return "AES128CBC-SHA256";
+            return "RSA-AES128CBC-SHA256";
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
-            return "AES256CBC-SHA256";
+            return "RSA-AES256CBC-SHA256";
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
-            return "AES128GCM-SHA256";
+            return "RSA-AES128GCM-SHA256";
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
-            return "AES256GCM-SHA384";
+            return "RSA-AES256GCM-SHA384";
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+            return "DHE-RSA-AES256GCM-SHA384";
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+            return "DHE-RSA-AES256CBC-SHA";
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+            return "DHE-RSA-AES128CBC-SHA256";
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+            return "DHE-RSA-AES256CBC-SHA256";
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+            return "DHE-RSA-AES128GCM-SHA256";
+        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
+            return "DHE-RSA-AES256GCM-SHA256";
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
+            return "ECDHE-RSA-AES128CBC-SHA";
+        case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+            return "ECDHE-RSA-AES256CBC-SHA";
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+            return "ECDHE-RSA-AES128CBC-SHA256";
+        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+            return "ECDHE-RSA-AES128GCM-SHA256";
+        case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+            return "ECDHE-RSA-AES256GCM-SHA384";
     }
     return "UNKNOWN";
 }
