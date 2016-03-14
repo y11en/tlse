@@ -711,6 +711,31 @@ int __private_tls_verify_rsa(TLSContext *context, unsigned int hash_type, const 
     return rsa_stat;
 }
 
+#ifdef TLS_LEGACY_SUPPORT
+int __private_rsa_sign_hash_md5sha1(const unsigned char *in, unsigned long inlen, unsigned char *out, unsigned long *outlen, prng_state *prng, int prng_idx, unsigned long saltlen, rsa_key *key) {
+    ltc_asn1_list digestinfo;
+    unsigned long modulus_bitlen, modulus_bytelen, x;
+    int err;
+
+    if ((in == NULL) || (out == NULL) || (outlen == NULL) || (key == NULL))
+        return TLS_GENERIC_ERROR;
+
+    modulus_bitlen = mp_count_bits((key->N));
+
+    modulus_bytelen = mp_unsigned_bin_size((key->N));
+    if (modulus_bytelen > *outlen) {
+        *outlen = modulus_bytelen;
+        return CRYPT_BUFFER_OVERFLOW;
+    }
+
+    err = pkcs_1_v1_5_encode(in, inlen, LTC_LTC_PKCS_1_EMSA, modulus_bitlen, NULL, 0, out, &x);
+    if (err != CRYPT_OK)
+        return err;
+
+    return ltc_mp.rsa_me(out, x, out, outlen, PK_PRIVATE, key);
+}
+#endif
+
 int __private_tls_sign_rsa(TLSContext *context, unsigned int hash_type, const unsigned char *message, unsigned int message_len, unsigned char *out, unsigned long *outlen) {
     if ((!outlen) || (!context) || (!out) || (!outlen) || (!context->private_key) || (!context->private_key->der_bytes) || (!context->private_key->der_len)) {
         DEBUG_PRINT("No private key set");
@@ -796,14 +821,32 @@ int __private_tls_sign_rsa(TLSContext *context, unsigned int hash_type, const un
                     err = sha1_done(&state, hash + 16);
             }
             hash_len = 36;
+            err = sha1_init(&state);
+            if (!err) {
+                err = sha1_process(&state, message, message_len);
+                if (!err)
+                    err = sha1_done(&state, hash + 16);
+            }
+            hash_len = 36;
             break;
     }
-    if ((hash_idx < 0) || (err)) {
-        DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
-        return TLS_GENERIC_ERROR;
+
+#ifdef TLS_LEGACY_SUPPORT
+    if (hash_type == __md5_sha1) {
+        if (err) {
+            DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
+            return TLS_GENERIC_ERROR;
+        }
+        err = __private_rsa_sign_hash_md5sha1(hash, hash_len, out, outlen, NULL, find_prng("sprng"), 0, &key);
+    } else
+#endif
+    {
+        if ((hash_idx < 0) || (err)) {
+            DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
+            return TLS_GENERIC_ERROR;
+        }
+        err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_LTC_PKCS_1_V1_5, NULL, find_prng("sprng"), hash_idx, 0, &key);
     }
-    int res = 0;
-    err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_LTC_PKCS_1_V1_5, NULL, find_prng("sprng"), hash_idx, 0, &key);
     rsa_free(&key);
     if (err)
         return 0;
@@ -2178,12 +2221,14 @@ void tls_destroy_context(TLSContext *context) {
 
 int tls_cipher_supported(TLSContext *context, unsigned short cipher) {
     switch (cipher) {
+#ifdef TLS_FORWARD_SECRECY
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+#endif
         case TLS_RSA_WITH_AES_128_CBC_SHA:
         case TLS_RSA_WITH_AES_256_CBC_SHA:
             return 1;
 #ifdef TLS_FORWARD_SECRECY
-        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
-        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
