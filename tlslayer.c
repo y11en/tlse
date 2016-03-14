@@ -57,8 +57,8 @@
 // ==================================================================================== //
 // tomcrypt private structure needed for Diffie-Hellman ephemeral key export (p and g)
 typedef struct {
-  int size;
-  char *name, *base, *prime;
+    int size;
+    char *name, *base, *prime;
 } dh_set;
 
 extern const dh_set sets[];
