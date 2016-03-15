@@ -159,7 +159,7 @@ int main(int argc , char *argv[]) {
                         sni[0] = 0;
                         if (context->sni)
                             snprintf(sni, 0xFF, "%s", context->sni);
-    /* COOL STUFF => */ int size = tls_export_context(context, export_buffer, sizeof(export_buffer));
+    /* COOL STUFF => */ int size = tls_export_context(context, export_buffer, sizeof(export_buffer), 1);
                         if (size > 0) {
     /* COOLER STUFF => */   TLSContext *imported_context = tls_import_context(export_buffer, size);
     // This is cool because a context can be sent to an existing process.
