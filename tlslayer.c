@@ -153,6 +153,8 @@
 #define TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 0xC02F
 #define TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 0xC030
 
+#define TLS_FALLBACK_SCSV                     0x5600
+
 #define TLS_UNSUPPORTED_ALGORITHM   0x00
 #define TLS_RSA_SIGN_RSA            0x01
 #define TLS_RSA_SIGN_MD5            0x04
@@ -221,6 +223,7 @@ typedef enum {
     protocol_version = 70,
     insufficient_security = 71,
     internal_error = 80,
+    inappropriate_fallback = 86,
     user_canceled = 90,
     no_renegotiation = 100,
     unsupported_extension = 110,
@@ -392,6 +395,7 @@ typedef struct {
     unsigned char client_verified;
     // handshake messages flags
     unsigned char hs_messages[11];
+    unsigned char scsv_set;
     void *user_data;
 } TLSContext;
 
@@ -2359,12 +2363,19 @@ int tls_cipher_supported(TLSContext *context, unsigned short cipher) {
 
 int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len) {
     int i;
+    int selected_cipher = TLS_NO_COMMON_CIPHER;
     for (i = 0; i < buf_len; i+=2) {
         unsigned short cipher = ntohs(*(unsigned short *)&buf[i]);
-        if (tls_cipher_supported(context, cipher))
-            return cipher;
+        if (cipher == TLS_FALLBACK_SCSV) {
+            context->scsv_set = 1;
+            DEBUG_PRINT("SCSV SET\n");
+            if (selected_cipher != TLS_NO_COMMON_CIPHER)
+                break;
+        } else
+        if ((selected_cipher == TLS_NO_COMMON_CIPHER) && (tls_cipher_supported(context, cipher)))
+            selected_cipher = cipher;
     }
-    return TLS_NO_COMMON_CIPHER;
+    return selected_cipher;
 }
 
 int tls_cipher_is_ephemeral(TLSContext *context) {
@@ -2940,8 +2951,13 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     // when no legacy support, don't downgrade
 #ifndef TLS_FORCE_LOCAL_VERSION
     // downgrade ?
-    if (context->version > version)
-        context->version = version;
+    if (context->version > version) {
+        if (context->scsv_set) {
+            __private_tls_write_packet(tls_build_alert(context, 1, inappropriate_fallback));
+            context->critical_error = 1;
+        } else
+            context->version = version;
+    }
 #endif
 #endif
     memcpy(context->remote_random, &buf[5], __TLS_CLIENT_RANDOM_SIZE);
