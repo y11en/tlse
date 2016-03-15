@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <sys/types.h>
 #ifdef _WIN32
-    #include <winsock2.h>
-    #define socklen_t int
+#include <winsock2.h>
+#define socklen_t int
 #else
-    #include <sys/socket.h>
-    #include <netinet/in.h>
-    #include <netdb.h> 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
 #endif
 #include "../tlslayer.c"
 
@@ -41,11 +41,11 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serv_addr;
     struct hostent *server;
     int ret;
-    char msg[] = "GET /\r\nHost: %s:%i\r\n\r\n";
+    char msg[] = "GET %s HTTP/1.1\r\nHost: %s:%i\r\n\r\n";
     char msg_buffer[0xFF];
     char buffer[0xFFF];
     char *ref_argv[] = {"", "google.com", "443"};
-
+    char *req_file = "/";
 #ifdef _WIN32
     // Windows: link against ws2_32.lib
     WSADATA wsaData;
@@ -54,29 +54,31 @@ int main(int argc, char *argv[]) {
     // ignore SIGPIPE
     signal(SIGPIPE, SIG_IGN);
 #endif
-
+    
     // dummy functions ... for semantic compatibility only
     SSL_library_init();
     SSL_load_error_strings();
-	
+    
     // note that SSL and SSL_CTX are the same in tlslayer.c
     // both are mapped to TLSContext
     SSL *clientssl = SSL_CTX_new(SSLv3_client_method());
     // optionally, we can set a certificate validation callback function
     SSL_CTX_set_verify(clientssl, SSL_VERIFY_PEER, verify);
-	
+    
     if (!clientssl) {
         fprintf(stderr, "Error initializing client context\n");
         return -1;
     }
-	
+    
     if (argc < 2)
         argv = ref_argv;
-
+    
     if (argc <= 2)
         portno = 443;
     else
         portno = atoi(argv[2]);
+    if (argc >= 3)
+        req_file = argv[3];
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         fprintf(stderr, "ERROR opening socket");
@@ -95,13 +97,14 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "ERROR connecting to %s", argv[1]);
         return -4;
     }
-    snprintf(msg_buffer, sizeof(msg_buffer), msg, argv[1], portno);
+    snprintf(msg_buffer, sizeof(msg_buffer), msg, req_file, argv[1], portno);
+    fprintf(stderr, "MSG: %s\n", msg_buffer);
     // starting from here is identical with libssl
     SSL_set_fd(clientssl, sockfd);
-
+    
     // set sni
     tls_sni_set(clientssl, argv[1]);
-
+    
     if ((ret = SSL_connect(clientssl)) != 1) {
         fprintf(stderr, "Handshake Error %i\n", ret);
         return -5;
@@ -116,7 +119,7 @@ int main(int argc, char *argv[]) {
     }
     if (ret < 0)
         fprintf(stderr, "SSL read error %i\n", ret);
-
+    
     SSL_shutdown(clientssl);
 #ifdef _WIN32
     closesocket(sockfd);
@@ -124,5 +127,5 @@ int main(int argc, char *argv[]) {
     close(sockfd);
 #endif
     SSL_CTX_free(clientssl);
-    return 0;	
+    return 0;
 }
