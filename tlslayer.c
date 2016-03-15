@@ -317,6 +317,17 @@ typedef struct {
 } TLSHash;
 
 #ifdef TLS_FORWARD_SECRECY
+#define mp_init(a)                           ltc_mp.init(a)
+#define mp_init_multi                        ltc_init_multi
+#define mp_clear(a)                          ltc_mp.deinit(a)
+#define mp_clear_multi                       ltc_deinit_multi
+
+#define mp_read_radix(a, b, c)               ltc_mp.read_radix(a, b, c)
+#define mp_unsigned_bin_size(a)              ltc_mp.unsigned_size(a)
+#define mp_to_unsigned_bin(a, b)             ltc_mp.unsigned_write(a, b)
+#define mp_read_unsigned_bin(a, b, c)        ltc_mp.unsigned_read(a, b, c)
+#define mp_exptmod(a, b, c, d)               ltc_mp.exptmod(a, b, c, d)
+
 typedef struct {
     void *x;
     void *y;
