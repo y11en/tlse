@@ -337,6 +337,8 @@ typedef struct {
     TLSCertificate *private_key;
 #ifdef TLS_FORWARD_SECRECY
     DHKey *dhe;
+    char *default_dhe_p;
+    char *default_dhe_g;
 #endif
     TLSCertificate **client_certificates;
     unsigned int certificates_count;
@@ -2208,6 +2210,10 @@ TLSContext *tls_accept(TLSContext *context) {
         child->certificates_count = context->certificates_count;
         child->private_key = context->private_key;
         child->exportable = context->exportable;
+#ifdef TLS_FORWARD_SECRECY
+        child->default_dhe_p = context->default_dhe_p;
+        child->default_dhe_g = context->default_dhe_g;
+#endif
     }
     return child;
 }
@@ -2225,6 +2231,35 @@ void __private_tls_dhe_create(TLSContext *context) {
     __private_tls_dhe_free(context);
     context->dhe = (DHKey *)TLS_MALLOC(sizeof(DHKey));
 }
+
+int tls_set_default_dhe_pg(TLSContext *context, const char *p_hex_str, const char *g_hex_str) {
+    if ((!context) || (context->is_child) || (!context->is_server) || (!p_hex_str) || (!g_hex_str))
+        return 0;
+
+    TLS_FREE(context->default_dhe_p);
+    TLS_FREE(context->default_dhe_g);
+
+    context->default_dhe_p = NULL;
+    context->default_dhe_g = NULL;
+
+    int p_len = strlen(p_hex_str);
+    int g_len = strlen(g_hex_str);
+    if ((p_len <= 0) || (g_len <= 0))
+        return 0;
+    context->default_dhe_p = (char *)TLS_MALLOC(p_len + 1);
+    if (!context->default_dhe_p)
+        return 0;
+    context->default_dhe_g = (char *)TLS_MALLOC(g_len + 1);
+    if (!context->default_dhe_g)
+        return 0;
+
+    memcpy(context->default_dhe_p, p_hex_str, p_len);
+    context->default_dhe_p[p_len] = 0;
+
+    memcpy(context->default_dhe_g, g_hex_str, g_len);
+    context->default_dhe_g[g_len] = 0;
+    return 1;
+}
 #endif
 
 void tls_destroy_context(TLSContext *context) {
@@ -2239,6 +2274,10 @@ void tls_destroy_context(TLSContext *context) {
         if (context->private_key)
             tls_destroy_certificate(context->private_key);
         TLS_FREE(context->certificates);
+#ifdef TLS_FORWARD_SECRECY
+        TLS_FREE(context->default_dhe_p);
+        TLS_FREE(context->default_dhe_g);
+#endif
     }
     if (context->client_certificates) {
         for (i = 0; i < context->client_certificates_count; i++)
@@ -2504,6 +2543,13 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         init_dependencies();
         __private_tls_dhe_create(context);
 
+        const char *default_dhe_p = context->default_dhe_p;
+        const char *default_dhe_g = context->default_dhe_g;
+
+        if ((!default_dhe_p) || (!default_dhe_g)) {
+            default_dhe_p = TLS_DH_DEFAULT_P;
+            default_dhe_g = TLS_DH_DEFAULT_G;
+        }
         if (__private_tls_dh_make_key(__TLS_DHE_KEY_SIZE / 8, context->dhe, TLS_DH_DEFAULT_P, TLS_DH_DEFAULT_G)) {
             DEBUG_PRINT("ERROR CREATING DHE KEY\n");
             TLS_FREE(packet);
