@@ -176,7 +176,7 @@
 #define __TLS_MAX_SHA_SIZE 48
 
 #define __TLS_V11_HASH_SIZE 36      // 16(md5) + 20(sha1)
-#define __TLS_MAX_HASH_SIZE __TLS_V11_HASH_SIZE
+#define __TLS_MAX_HASH_SIZE __TLS_MAX_SHA_SIZE
 #define __TLS_MAX_RSA_KEY   2048    // 16kbits
 
 #define __TLS_MAX_TLS_APP_SIZE      65000
@@ -3315,7 +3315,7 @@ int tls_parse_finished(TLSContext *context, const unsigned char *buf, int buf_le
         return TLS_NO_MEMORY;
     }
     
-    unsigned char hash[__TLS_MAX_HASH_SIZE];
+    unsigned char hash[__TLS_MAX_SHA_SIZE];
     unsigned int hash_len = __private_tls_get_hash(context, hash);
     // server verifies client's message
     if (context->is_server)
