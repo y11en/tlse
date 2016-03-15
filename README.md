@@ -5,11 +5,11 @@ Single C file TLS 1.2 (also 1.1 and 1.0) implementation, using [libtomcrypt](htt
 Compiling
 ----------
 
-`$ gcc tlshello.c -o tlshello -ltomcrypt`  
+`$ gcc tlshello.c -o tlshello -ltomcrypt -ltommath -DLTM_DESC`  
 
 For debuging tls connections, the DEBUG flag must be set:
 
-`$ gcc tlsserverhello.c -o tlsserverhello -ltomcrypt`  
+`$ gcc tlsserverhello.c -o tlsserverhello -ltomcrypt -ltommath -DLTM_DESC`  
 
 
 The entire library is a single c file that you just include in your source.
