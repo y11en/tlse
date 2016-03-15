@@ -2215,7 +2215,7 @@ void tls_destroy_context(TLSContext *context) {
     TLS_FREE(context->sni);
     TLS_FREE(context->dtls_cookie);
     TLS_FREE(context->cached_handshake);
-    __private_tls_dhe_create(context);
+    __private_tls_dhe_free(context);
     TLS_FREE(context);
 }
 
