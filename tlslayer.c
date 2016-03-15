@@ -930,8 +930,8 @@ void __private_tls_sleep(unsigned int microseconds) {
     Sleep(microseconds/1000);
 #else
     const struct timespec ts = {
-        .tv_sec = (long int) (microseconds / 1000000),
-        .tv_nsec = (long int) (microseconds % 1000000) * 1000ul
+        .tv_sec = (unsigned long int) (microseconds / 1000000),
+        .tv_nsec = (unsigned long int) (microseconds % 1000000) * 1000ul
     };
     nanosleep(&ts, NULL);
 #endif
@@ -5014,4 +5014,4 @@ int SSL_pending(TLSContext *context) {
 
 #endif // SSL_COMPATIBLE_INTERFACE
 
-#endif // TLS_LAYER_C 
+#endif // TLS_LAYER_C
