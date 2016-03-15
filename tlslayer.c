@@ -4315,7 +4315,7 @@ void tls_make_exportable(TLSContext *context, unsigned char exportable_flag) {
     }
 }
 
-int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int buf_len) {
+int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int buf_len, unsigned char small_version) {
     // only negotiated AND exportable connections may be exported
     if ((!context) || (context->critical_error) || (context->connection_status != 0xFF) || (!context->exportable) || (!context->exportable_keys) || (!context->exportable_size) || (!context->crypto.created)) {
         DEBUG_PRINT("CANNOT EXPORT CONTEXT %i\n", (int)context->connection_status);
@@ -4333,17 +4333,16 @@ int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int 
         tls_packet_uint8(packet, 2);
     else
         tls_packet_uint8(packet, context->is_server);
-    
-    unsigned char mac_length = (unsigned char)__private_tls_mac_length(context);
-    unsigned char iv[__TLS_AES_IV_LENGTH];
-    unsigned long len = __TLS_AES_IV_LENGTH;
-    
+       
     if (context->crypto.created == 2) {
         // aead
         tls_packet_uint8(packet, __TLS_AES_GCM_IV_LENGTH);
         tls_packet_append(packet, context->crypto.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
         tls_packet_append(packet, context->crypto.remote_aead_iv, __TLS_AES_GCM_IV_LENGTH);
     } else {
+        unsigned char iv[__TLS_AES_IV_LENGTH];
+        unsigned long len = __TLS_AES_IV_LENGTH;
+
         memset(iv, 0, __TLS_AES_IV_LENGTH);
         cbc_getiv(iv, &len, &context->crypto.aes_local);
         tls_packet_uint8(packet, __TLS_AES_IV_LENGTH);
@@ -4357,12 +4356,21 @@ int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int 
     tls_packet_uint8(packet, context->exportable_size);
     tls_packet_append(packet, context->exportable_keys, context->exportable_size);
     
-    tls_packet_uint8(packet, mac_length);
-    tls_packet_append(packet, context->crypto.local_mac, mac_length);
-    tls_packet_append(packet, context->crypto.remote_mac, mac_length);
+    if (context->crypto.created == 2) {
+        tls_packet_uint8(packet, 0);
+    } else {
+        unsigned char mac_length = (unsigned char)__private_tls_mac_length(context);
+        tls_packet_uint8(packet, mac_length);
+        tls_packet_append(packet, context->crypto.local_mac, mac_length);
+        tls_packet_append(packet, context->crypto.remote_mac, mac_length);
+    }
     
-    tls_packet_uint16(packet, context->master_key_len);
-    tls_packet_append(packet, context->master_key, context->master_key_len);
+    if (small_version) {
+        tls_packet_uint16(packet, 0);
+    } else {
+        tls_packet_uint16(packet, context->master_key_len);
+        tls_packet_append(packet, context->master_key, context->master_key_len);
+    }
     
     uint64_t sequence_number = htonll(context->local_sequence_number);
     tls_packet_append(packet, (unsigned char *)&sequence_number, sizeof(uint64_t));
@@ -4393,7 +4401,7 @@ int tls_export_context(TLSContext *context, unsigned char *buffer, unsigned int 
 }
 
 TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
-    if ((!buffer) || (buf_len < 125) || (buffer[0] != TLS_SERIALIZED_OBJECT) || (buffer[5] != 0x01)) {
+    if ((!buffer) || (buf_len < 64) || (buffer[0] != TLS_SERIALIZED_OBJECT) || (buffer[5] != 0x01)) {
         DEBUG_PRINT("CANNOT IMPORT CONTEXT BUFFER\n");
         return NULL;
     }
@@ -4444,7 +4452,6 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
             memcpy(context->crypto.local_aead_iv, local_iv, iv_len);
             memcpy(context->crypto.remote_aead_iv, remote_iv, iv_len);
         }
-        
         if (context->is_server) {
             if (__private_tls_crypto_create(context, key_lengths / 2, iv_len, temp, local_iv, temp + key_lengths / 2, remote_iv)) {
                 DEBUG_PRINT("ERROR CREATING KEY CONTEXT\n");
@@ -4461,20 +4468,22 @@ TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
         memset(temp, 0, sizeof(temp));
         
         unsigned char mac_length = buffer[buf_pos++];
-        if ((!mac_length) || (mac_length > __TLS_MAX_MAC_SIZE)) {
+        if (mac_length > __TLS_MAX_MAC_SIZE) {
             DEBUG_PRINT("INVALID MAC SIZE\n");
             tls_destroy_context(context);
             return NULL;
         }
         
-        TLS_IMPORT_CHECK_SIZE(buf_pos, mac_length, buf_len)
-        memcpy(context->crypto.local_mac, &buffer[buf_pos], mac_length);
-        buf_pos += mac_length;
+        if (mac_length) {
+            TLS_IMPORT_CHECK_SIZE(buf_pos, mac_length, buf_len)
+            memcpy(context->crypto.local_mac, &buffer[buf_pos], mac_length);
+            buf_pos += mac_length;
         
-        TLS_IMPORT_CHECK_SIZE(buf_pos, mac_length, buf_len)
-        memcpy(context->crypto.remote_mac, &buffer[buf_pos], mac_length);
-        buf_pos += mac_length;
-        
+            TLS_IMPORT_CHECK_SIZE(buf_pos, mac_length, buf_len)
+            memcpy(context->crypto.remote_mac, &buffer[buf_pos], mac_length);
+            buf_pos += mac_length;
+        }
+
         TLS_IMPORT_CHECK_SIZE(buf_pos, 2, buf_len)
         unsigned short master_key_len = ntohs(*(unsigned short *)&buffer[buf_pos]);
         buf_pos += 2;
