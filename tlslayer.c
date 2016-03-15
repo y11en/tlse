@@ -2770,8 +2770,8 @@ TLSPacket *tls_build_hello(TLSContext *context) {
 #ifndef STRICT_TLS
             if (context->version >= TLS_V12) {
 #endif
-                // sizeof ciphers (12 ciphers * 2 bytes)
-                tls_packet_uint16(packet, 22);
+                // sizeof ciphers (10 ciphers * 2 bytes)
+                tls_packet_uint16(packet, 20);
                 // not yet supported, because the first message sent (this one)
                 // is already hashed by the client with sha256 (sha384 not yet supported client-side)
                 // but is fully suported server-side
@@ -2781,7 +2781,7 @@ TLSPacket *tls_build_hello(TLSContext *context) {
                 tls_packet_uint16(packet, TLS_DHE_RSA_WITH_AES_128_CBC_SHA256);
                 tls_packet_uint16(packet, TLS_DHE_RSA_WITH_AES_256_CBC_SHA);
                 tls_packet_uint16(packet, TLS_DHE_RSA_WITH_AES_128_CBC_SHA);
-                tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_GCM_SHA384);
+                // tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_GCM_SHA384);
                 tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_GCM_SHA256);
                 tls_packet_uint16(packet, TLS_RSA_WITH_AES_256_CBC_SHA256);
                 tls_packet_uint16(packet, TLS_RSA_WITH_AES_128_CBC_SHA256);
