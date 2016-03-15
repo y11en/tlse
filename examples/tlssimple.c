@@ -98,7 +98,6 @@ int main(int argc, char *argv[]) {
         return -4;
     }
     snprintf(msg_buffer, sizeof(msg_buffer), msg, req_file, argv[1], portno);
-    fprintf(stderr, "MSG: %s\n", msg_buffer);
     // starting from here is identical with libssl
     SSL_set_fd(clientssl, sockfd);
     
