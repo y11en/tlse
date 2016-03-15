@@ -40,7 +40,7 @@
 #include <unistd.h>
 #endif
 
-#include "tomcrypt/tomcrypt.h"
+#include <tomcrypt.h>
 
 // #define DEBUG
 
@@ -321,7 +321,7 @@ typedef struct {
 #define mp_init_multi                        ltc_init_multi
 #define mp_clear(a)                          ltc_mp.deinit(a)
 #define mp_clear_multi                       ltc_deinit_multi
-
+#define mp_count_bits(a)                     ltc_mp.count_bits(a)
 #define mp_read_radix(a, b, c)               ltc_mp.read_radix(a, b, c)
 #define mp_unsigned_bin_size(a)              ltc_mp.unsigned_size(a)
 #define mp_to_unsigned_bin(a, b)             ltc_mp.unsigned_write(a, b)
@@ -532,8 +532,17 @@ void init_dependencies() {
         return;
     DEBUG_PRINT("Initializing dependencies\n");
     dependecies_loaded = 1;
+#ifdef LTM_DESC
     ltc_mp = ltm_desc;
-    
+#else
+#ifdef TFM_DESC
+    ltc_mp = tfm_desc;
+#else
+#ifdef GMP_DESC
+    ltc_mp = gmp_desc;
+#endif
+#endif
+#endif
     register_prng(&sprng_desc);
     register_hash(&sha256_desc);
     register_hash(&sha1_desc);
