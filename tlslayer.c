@@ -395,7 +395,6 @@ typedef struct {
     unsigned char client_verified;
     // handshake messages flags
     unsigned char hs_messages[11];
-    unsigned char scsv_set;
     void *user_data;
 } TLSContext;
 
@@ -2361,14 +2360,16 @@ int tls_cipher_supported(TLSContext *context, unsigned short cipher) {
     return 0;
 }
 
-int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len) {
+int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len, int *scsv_set) {
     int i;
+    if (scsv_set)
+        *scsv_set = 0;
     int selected_cipher = TLS_NO_COMMON_CIPHER;
     for (i = 0; i < buf_len; i+=2) {
         unsigned short cipher = ntohs(*(unsigned short *)&buf[i]);
         if (cipher == TLS_FALLBACK_SCSV) {
-            context->scsv_set = 1;
-            DEBUG_PRINT("SCSV SET\n");
+            if (scsv_set)
+                *scsv_set = 1;
             if (selected_cipher != TLS_NO_COMMON_CIPHER)
                 break;
         } else
@@ -2934,6 +2935,7 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     }
     
     int res = 0;
+    int downgraded = 0;
     
     CHECK_SIZE(__TLS_CLIENT_HELLO_MINSIZE, buf_len, TLS_NEED_MORE_DATA)
     // big endian
@@ -2944,19 +2946,16 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     unsigned short version = ntohs(*(unsigned short *)&buf[3]);
     
     res += 2;
+
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
-    
     DEBUG_PRINT("VERSION REQUIRED BY REMOTE %x, VERSION NOW %x\n", (int)version, (int)context->version);
 #ifdef TLS_LEGACY_SUPPORT
     // when no legacy support, don't downgrade
 #ifndef TLS_FORCE_LOCAL_VERSION
     // downgrade ?
     if (context->version > version) {
-        if (context->scsv_set) {
-            __private_tls_write_packet(tls_build_alert(context, 1, inappropriate_fallback));
-            context->critical_error = 1;
-        } else
-            context->version = version;
+        context->version = version;
+        downgraded = 1;
     }
 #endif
 #endif
@@ -2979,10 +2978,17 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
         if (cipher_len & 1)
             return TLS_BROKEN_PACKET;
         
-        int cipher = tls_choose_cipher(context, &buf[res], cipher_len);
+        int scsv_set = 0;
+        int cipher = tls_choose_cipher(context, &buf[res], cipher_len, &scsv_set);
         if (cipher < 0) {
             DEBUG_PRINT("NO COMMON CIPHERS\n");
             return cipher;
+        }
+        if ((downgraded) && (scsv_set)) {
+            DEBUG_PRINT("NO DOWNGRADE (SCSV SET)\n");
+            __private_tls_write_packet(tls_build_alert(context, 1, inappropriate_fallback));
+            context->critical_error = 1;
+            return TLS_NOT_SAFE;
         }
         context->cipher = cipher;
         res += cipher_len;
