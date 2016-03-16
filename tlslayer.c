@@ -2449,11 +2449,44 @@ int tls_cipher_supported(TLSContext *context, unsigned short cipher) {
     return 0;
 }
 
+int tls_cipher_is_fs(TLSContext *context, unsigned short cipher) {
+    if (!context)
+        return 0;
+    switch (cipher) {
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
+        case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
+            return 1;
+        case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
+        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+            if (context->version >= TLS_V12)
+                return 1;
+            break;
+    }
+    return 0;
+}
 int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len, int *scsv_set) {
     int i;
     if (scsv_set)
         *scsv_set = 0;
+    if (!context)
+        return 0;
     int selected_cipher = TLS_NO_COMMON_CIPHER;
+#ifdef TLS_FORWARD_SECRECY
+    for (i = 0; i < buf_len; i+=2) {
+        unsigned short cipher = ntohs(*(unsigned short *)&buf[i]);
+        if (tls_cipher_is_fs(context, cipher)) {
+            selected_cipher = cipher;
+            break;
+        }
+    }
+#endif
     for (i = 0; i < buf_len; i+=2) {
         unsigned short cipher = ntohs(*(unsigned short *)&buf[i]);
         if (cipher == TLS_FALLBACK_SCSV) {
