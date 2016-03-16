@@ -676,7 +676,7 @@ unsigned char *__private_tls_decrypt_ecc_dhe(TLSContext *context, const unsigned
     dp.Gx = (char *)secp256r1.Gx;
     dp.Gy = (char *)secp256r1.Gy;
     dp.order = (char *)secp256r1.order;
-
+    
     ecc_key client_key;
     memset(&client_key, 0, sizeof(client_key));
     if (ecc_ansi_x963_import_ex(buffer, len, &client_key, &dp)) {
@@ -685,7 +685,7 @@ unsigned char *__private_tls_decrypt_ecc_dhe(TLSContext *context, const unsigned
     }
     unsigned char *out = (unsigned char *)TLS_MALLOC(len);
     unsigned long out_size = len;
-
+    
     int err = ecc_shared_secret(context->ecc_dhe, &client_key, out, &out_size);
     ecc_free(&client_key);
     if (clear_key)
@@ -2495,8 +2495,8 @@ int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len
             if (selected_cipher != TLS_NO_COMMON_CIPHER)
                 break;
         } else
-        if ((selected_cipher == TLS_NO_COMMON_CIPHER) && (tls_cipher_supported(context, cipher)))
-            selected_cipher = cipher;
+            if ((selected_cipher == TLS_NO_COMMON_CIPHER) && (tls_cipher_supported(context, cipher)))
+                selected_cipher = cipher;
     }
     return selected_cipher;
 }
@@ -2785,45 +2785,45 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         //dh_g
         //dh_Ys
     } else
-    if (method == KEA_ec_diffie_hellman) {
-        // 3 = named curve
-        tls_packet_uint8(packet, 3);
-        tls_packet_uint16(packet, secp256r1.iana);
-        init_dependencies();
-        __private_tls_ecc_dhe_create(context);
-
-        ltc_ecc_set_type dp;
-        memset(&dp, 0, sizeof(dp));
-        dp.B = (char *)secp256r1.B;
-        dp.size = secp256r1.size;
-        dp.name = (char *)secp256r1.name;
-        dp.prime = (char *)secp256r1.P;
-        dp.Gx = (char *)secp256r1.Gx;
-        dp.Gy = (char *)secp256r1.Gy;
-        dp.order = (char *)secp256r1.order;
-        if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, &dp)) {
-            TLS_FREE(context->ecc_dhe);
-            context->ecc_dhe = NULL;
-            DEBUG_PRINT("Error generatic ECC key\n");
-            TLS_FREE(packet);
-            return NULL;
-        }
-        unsigned char out[__TLS_MAX_RSA_KEY];
-        unsigned long out_len = __TLS_MAX_RSA_KEY;
-        if (ecc_ansi_x963_export(context->ecc_dhe, out, &out_len)) {
-            DEBUG_PRINT("Error exporting ECC key\n");
-            TLS_FREE(packet);
-            return NULL;
-        }
-        tls_packet_uint8(packet, out_len);
-        tls_packet_append(packet, out, out_len);
-    } else
+        if (method == KEA_ec_diffie_hellman) {
+            // 3 = named curve
+            tls_packet_uint8(packet, 3);
+            tls_packet_uint16(packet, secp256r1.iana);
+            init_dependencies();
+            __private_tls_ecc_dhe_create(context);
+            
+            ltc_ecc_set_type dp;
+            memset(&dp, 0, sizeof(dp));
+            dp.B = (char *)secp256r1.B;
+            dp.size = secp256r1.size;
+            dp.name = (char *)secp256r1.name;
+            dp.prime = (char *)secp256r1.P;
+            dp.Gx = (char *)secp256r1.Gx;
+            dp.Gy = (char *)secp256r1.Gy;
+            dp.order = (char *)secp256r1.order;
+            if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, &dp)) {
+                TLS_FREE(context->ecc_dhe);
+                context->ecc_dhe = NULL;
+                DEBUG_PRINT("Error generatic ECC key\n");
+                TLS_FREE(packet);
+                return NULL;
+            }
+            unsigned char out[__TLS_MAX_RSA_KEY];
+            unsigned long out_len = __TLS_MAX_RSA_KEY;
+            if (ecc_ansi_x963_export(context->ecc_dhe, out, &out_len)) {
+                DEBUG_PRINT("Error exporting ECC key\n");
+                TLS_FREE(packet);
+                return NULL;
+            }
+            tls_packet_uint8(packet, out_len);
+            tls_packet_append(packet, out, out_len);
+        } else
 #endif
-    {
-        TLS_FREE(packet);
-        DEBUG_PRINT("Unsupported ephemeral method: %i\n", method);
-        return NULL;
-    }
+        {
+            TLS_FREE(packet);
+            DEBUG_PRINT("Unsupported ephemeral method: %i\n", method);
+            return NULL;
+        }
     
     // signature
     unsigned int params_len = packet->len - start_len;
@@ -3081,7 +3081,7 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     unsigned short version = ntohs(*(unsigned short *)&buf[3]);
     
     res += 2;
-
+    
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
     DEBUG_PRINT("VERSION REQUIRED BY REMOTE %x, VERSION NOW %x\n", (int)version, (int)context->version);
 #ifdef TLS_LEGACY_SUPPORT
@@ -3301,7 +3301,7 @@ int __private_tls_parse_random(TLSContext *context, const unsigned char *buf, in
         size = ntohs(*(unsigned short *)buf);
         res += 2;
     }
-
+    
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA)
     unsigned int out_len = 0;
     unsigned char *random = NULL;
@@ -4609,7 +4609,10 @@ int tls_write(TLSContext *context, unsigned char *data, unsigned int len) {
         return TLS_UNEXPECTED_MESSAGE;
     if (len > __TLS_MAX_TLS_APP_SIZE)
         len = __TLS_MAX_TLS_APP_SIZE;
-    return __private_tls_write_packet(tls_build_message(context, data, len));
+    int actually_written = __private_tls_write_packet(tls_build_message(context, data, len));
+    if (actually_written <= 0)
+        return actually_written;
+    return len;
 }
 
 TLSPacket *tls_build_alert(TLSContext *context, char critical, unsigned char code) {
