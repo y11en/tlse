@@ -60,7 +60,6 @@ int send_pending(int client_sock, TLSContext *context) {
 }
 
 // verify signature
-// same function used both for verifing server certificate (on client) or signature verify (on server)
 int verify_signature(TLSContext *context, TLSCertificate **certificate_chain, int len) {
     if (len) {
         TLSCertificate *cert = certificate_chain[0];
@@ -90,10 +89,16 @@ int main(int argc , char *argv[]) {
         printf("Could not create socket");
         return 0;
     }
-     
+
+    int port = 2000;
+    if (argc > 1) {
+        port = atoi(argv[1]);
+        if (port <= 0)
+            port = 2000;
+    }
     server.sin_family = AF_INET;
     server.sin_addr.s_addr = INADDR_ANY;
-    server.sin_port = htons(2000);
+    server.sin_port = htons(port);
      
     if( bind(socket_desc,(struct sockaddr *)&server , sizeof(server)) < 0) {
         perror("bind failed. Error");
