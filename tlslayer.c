@@ -1009,8 +1009,8 @@ void __private_tls_sleep(unsigned int microseconds) {
     Sleep(microseconds/1000);
 #else
     const struct timespec ts = {
-        .tv_sec = (unsigned long int) (microseconds / 1000000),
-        .tv_nsec = (unsigned long int) (microseconds % 1000000) * 1000ul
+        .tv_sec = (unsigned int) (microseconds / 1000000),
+        .tv_nsec = (unsigned int) (microseconds % 1000000) * 1000ul
     };
     nanosleep(&ts, NULL);
 #endif
@@ -5173,7 +5173,7 @@ int SSL_accept(TLSContext *context) {
     // accept
     int read_size;
     while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0))) {
-        if (tls_consume_stream(context, client_message, read_size, NULL) >= 0) {
+        if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) >= 0) {
             int res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
                 return res;
@@ -5200,7 +5200,7 @@ int SSL_connect(TLSContext *context) {
     int read_size;
     unsigned char client_message[0xFFFF];
     while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
-        if (tls_consume_stream(context, client_message, read_size, NULL) >= 0) {
+        if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) >= 0) {
             res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
                 return res;
@@ -5258,7 +5258,7 @@ int SSL_read(TLSContext *context, unsigned char *buf, unsigned int len) {
         // accept
         int read_size;
         while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
-            if (tls_consume_stream(context, client_message, read_size, NULL) > 0) {
+            if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) > 0) {
                 __tls_ssl_private_send_pending(ssl_data->fd, context);
                 break;
             }
