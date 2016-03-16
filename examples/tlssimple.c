@@ -41,7 +41,7 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in serv_addr;
     struct hostent *server;
     int ret;
-    char msg[] = "GET %s HTTP/1.1\r\nHost: %s:%i\r\n\r\n";
+    char msg[] = "GET %s HTTP/1.1\r\nHost: %s:%i\r\nConnection: close\r\n\r\n";
     char msg_buffer[0xFF];
     char buffer[0xFFF];
     char *ref_argv[] = {"", "google.com", "443"};
@@ -62,6 +62,13 @@ int main(int argc, char *argv[]) {
     // note that SSL and SSL_CTX are the same in tlslayer.c
     // both are mapped to TLSContext
     SSL *clientssl = SSL_CTX_new(SSLv3_client_method());
+
+    // =========================================================================== //
+    // IMPORTANT NOTE:
+    // SSL_new(clientssl) MUST never be called
+    // SSL_CTX_new returns a SSL handle, instead of a SSL_CTX object (like libssl)
+    // =========================================================================== //
+
     // optionally, we can set a certificate validation callback function
     SSL_CTX_set_verify(clientssl, SSL_VERIFY_PEER, verify);
     
@@ -69,6 +76,9 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error initializing client context\n");
         return -1;
     }
+
+    if (argc < 4)
+        fprintf(stderr, "Usage: %s host=google.com port=443 requested_file=/\n\n", argv[0]);
     
     if (argc < 2)
         argv = ref_argv;
@@ -77,8 +87,10 @@ int main(int argc, char *argv[]) {
         portno = 443;
     else
         portno = atoi(argv[2]);
+
     if (argc >= 3)
         req_file = argv[3];
+
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         fprintf(stderr, "ERROR opening socket");
