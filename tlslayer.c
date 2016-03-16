@@ -5065,6 +5065,7 @@ int __tls_ssl_private_send_pending(int client_sock, TLSContext *context) {
         }
         out_buffer_len -= res;
         out_buffer_index += res;
+        send_res += res;
     }
     tls_buffer_clear(context);
     return send_res;
