@@ -285,6 +285,7 @@ typedef struct {
     unsigned int serial_len;
     unsigned char *sign_key;
     unsigned int sign_len;
+    unsigned char *fingerprint;
     unsigned char *der_bytes;
     unsigned int der_len;
     unsigned char *bytes;
@@ -1682,6 +1683,7 @@ void tls_destroy_certificate(TLSCertificate *cert) {
         TLS_FREE(cert->priv);
         TLS_FREE(cert->der_bytes);
         TLS_FREE(cert->bytes);
+        TLS_FREE(cert->fingerprint);
         TLS_FREE(cert);
     }
 }
@@ -4184,6 +4186,155 @@ int __is_field(unsigned int *fields, unsigned int *prefix) {
     return 1;
 }
 
+int __private_tls_hash_len(int algorithm) {
+    switch (algorithm) {
+        case TLS_RSA_SIGN_MD5:
+            return 16;
+        case TLS_RSA_SIGN_SHA1:
+            return 20;
+        case TLS_RSA_SIGN_SHA256:
+            return 32;
+        case TLS_RSA_SIGN_SHA384:
+            return 48;
+        case TLS_RSA_SIGN_SHA512:
+            return 64;
+    }
+    return 0;
+}
+
+unsigned char *__private_tls_compute_hash(int algorithm, const unsigned char *message, unsigned int message_len) {
+    unsigned char *hash = NULL;
+    if ((!message) || (!message_len))
+        return hash;
+    int err;
+    hash_state state;
+    switch (algorithm) {
+        case TLS_RSA_SIGN_MD5:
+            DEBUG_PRINT("SIGN MD5\n");
+            hash = (unsigned char *)TLS_MALLOC(16);
+            if (!hash)
+                return NULL;
+
+            err = md5_init(&state);
+            if (!err) {
+                err = md5_process(&state, message, message_len);
+                if (!err)
+                    err = md5_done(&state, hash);
+            }
+            break;
+        case TLS_RSA_SIGN_SHA1:
+            DEBUG_PRINT("SIGN SHA1\n");
+            hash = (unsigned char *)TLS_MALLOC(20);
+            if (!hash)
+                return NULL;
+
+            err = sha1_init(&state);
+            if (!err) {
+                err = sha1_process(&state, message, message_len);
+                if (!err)
+                    err = sha1_done(&state, hash);
+            }
+            break;
+        case TLS_RSA_SIGN_SHA256:
+            DEBUG_PRINT("SIGN SHA256\n");
+            hash = (unsigned char *)TLS_MALLOC(32);
+            if (!hash)
+                return NULL;
+
+            err = sha256_init(&state);
+            if (!err) {
+                err = sha256_process(&state, message, message_len);
+                if (!err)
+                    err = sha256_done(&state, hash);
+            }
+            break;
+        case TLS_RSA_SIGN_SHA384:
+            DEBUG_PRINT("SIGN SHA384\n");
+            hash = (unsigned char *)TLS_MALLOC(48);
+            if (!hash)
+                return NULL;
+
+            err = sha384_init(&state);
+            if (!err) {
+                err = sha384_process(&state, message, message_len);
+                if (!err)
+                    err = sha384_done(&state, hash);
+            }
+            break;
+        case TLS_RSA_SIGN_SHA512:
+            DEBUG_PRINT("SIGN SHA512\n");
+            hash = (unsigned char *)TLS_MALLOC(64);
+            if (!hash)
+                return NULL;
+
+            err = sha512_init(&state);
+            if (!err) {
+                err = sha512_process(&state, message, message_len);
+                if (!err)
+                    err = sha512_done(&state, hash);
+            }
+            break;
+        default:
+            DEBUG_PRINT("UNKNOWN SIGNATURE ALGORITHM\n");
+    }
+    return hash;
+}
+
+int tls_certificate_verify_signature(TLSCertificate *cert, TLSCertificate *parent) {
+    if ((!cert) || (!parent) || (!cert->sign_key) || (!cert->fingerprint) || (!cert->sign_len) || (!parent->der_bytes) || (!parent->der_len)) {
+        DEBUG_PRINT("CANNOT VERIFY SIGNATURE");
+        return 0;
+    }
+    init_dependencies();
+    int hash_len = __private_tls_hash_len(cert->algorithm);
+    if (hash_len <= 0)
+        return 0;
+
+    int hash_type = -1;
+    switch (cert->algorithm) {
+        case TLS_RSA_SIGN_MD5:
+            hash_type = md5;
+            break;
+        case TLS_RSA_SIGN_SHA1:
+            hash_type = sha1;
+            break;
+        case TLS_RSA_SIGN_SHA256:
+            hash_type = sha256;
+            break;
+        case TLS_RSA_SIGN_SHA384:
+            hash_type = sha384;
+            break;
+        case TLS_RSA_SIGN_SHA512:
+            hash_type = sha512;
+            break;
+        default:
+            DEBUG_PRINT("UNKNOWN SIGNATURE ALGORITHM\n");
+            return 0;
+    }
+
+    rsa_key key;
+    int err = rsa_import(parent->der_bytes, parent->der_len, &key);
+    if (err) {
+        DEBUG_PRINT("Error inporting RSA certificate (code: %i)", err);
+        return 0;
+    }
+    int rsa_stat = 0;
+    unsigned char *signature = cert->sign_key;
+    int signature_len = cert->sign_len;
+    if (!signature[0]) {
+        signature++;
+        signature_len--;
+    }
+    err = rsa_verify_hash_ex(signature, signature_len, cert->fingerprint, hash_len, LTC_LTC_PKCS_1_V1_5, hash_type, 0, &rsa_stat, &key);
+    rsa_free(&key);
+    if (err) {
+        DEBUG_PRINT("ERROR %i\n", err);
+        return 0;
+    }
+    DEBUG_PRINT("CERTIFICATE VALIDATION: %i\n", rsa_stat);
+    return rsa_stat;
+}
+
 int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsigned char *buffer, int size, int level, unsigned int *fields, unsigned char *has_key, int client_cert) {
     int pos = 0;
     // X.690
@@ -4193,6 +4344,8 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
     if (has_key)
         *has_key = 0;
     unsigned char local_has_key = 0;
+    const unsigned char *cert_data = NULL;
+    unsigned int cert_len = 0;
     while (pos < size) {
         unsigned int start_pos = pos;
         CHECK_SIZE(2, size - pos, TLS_NEED_MORE_DATA)
@@ -4225,6 +4378,10 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
                     break;
                 case 0x10:
                     DEBUG_PRINT("SEQUENCE\n");
+                    if ((level == 2) && (idx == 1)) {
+                        cert_len = length + (pos - start_pos);
+                        cert_data = &buffer[start_pos];
+                    }
                     // private key on server or public key on client
                     if ((!cert->version) && (__is_field(fields, priv_der_id))) {
                         TLS_FREE(cert->der_bytes);
@@ -4431,6 +4588,15 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
             }
         }
         pos += length;
+    }
+    if ((level == 2) && (cert->sign_key) && (cert->sign_len) && (cert_len) && (cert_data)) {
+        TLS_FREE(cert->fingerprint);
+        cert->fingerprint = __private_tls_compute_hash(cert->algorithm, cert_data, cert_len);
+#ifdef DEBUG
+        if (cert->fingerprint) {
+            DEBUG_DUMP_HEX_LABEL("FINGERPRINT", cert->fingerprint, __private_tls_hash_len(cert->algorithm));
+        }
+#endif
     }
     return pos;
 }
