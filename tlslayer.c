@@ -4351,8 +4351,15 @@ int tls_certificate_chain_is_valid(TLSCertificate **certificates, int len) {
     int i;
     len--;
 
+    // expired certificate or not yet valid ?
+    if (tls_certificate_is_valid(certificates[0]))
+        return bad_certificate;
+
     // check 
     for (i = 0; i < len; i++) {
+        // certificate in chain is expired ?
+        if (tls_certificate_is_valid(certificates[i+1]))
+            return bad_certificate;
         if (!tls_certificate_verify_signature(certificates[i], certificates[i+1]))
             return bad_certificate;
     }
@@ -4366,7 +4373,9 @@ int tls_certificate_chain_is_valid_root(TLSContext *context, TLSCertificate **ce
     int j;
     for (i = 0; i < len; i++) {
         for (j = 0; j < context->root_count; j++) {
-            DEBUG_PRINT("CHECKING AGAINST: %s\n", context->root_certificates[j]->subject);
+            // check if root certificate expired
+            if (tls_certificate_is_valid(context->root_certificates[j]))
+                continue;
             // if any root validates any certificate in the chain, then is root validated
             if (tls_certificate_verify_signature(certificates[i], context->root_certificates[j]))
                 return 0;
