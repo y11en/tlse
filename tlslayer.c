@@ -1469,46 +1469,18 @@ char *tls_certificate_to_string(TLSCertificate *cert, char *buffer, int len) {
         return NULL;
     buffer[0] = 0;
     if (cert->version) {
-        int res = snprintf(buffer, len, "X.509v%i certificate\n  Issued by: [%s]%s (%s)\n  Issued to: [%s]%s (%s, %s)\n  Subject: %s\n  Key size: %i bits\n  Validity: 20%s - 20%s\n  Serial number: ",
+        int res = snprintf(buffer, len, "X.509v%i certificate\n  Issued by: [%s]%s (%s)\n  Issued to: [%s]%s (%s, %s)\n  Subject: %s\n  Validity: 20%s - 20%s\n  Serial number: ",
                            (int)cert->version,
                            cert->issuer_country, cert->issuer_entity, cert->issuer_subject,
                            cert->country, cert->entity, cert->state, cert->location,
                            cert->subject,
-                           cert->pk_len * 8,
                            cert->not_before, cert->not_after
                            );
         if (res > 0) {
             for (i = 0; i < cert->serial_len; i++)
                 res += snprintf(buffer + res, len - res, "%02x", (int)cert->serial_number[i]);
-            res += snprintf(buffer + res, len - res, "\n  Algorithm: ");
         }
-        if (res > 0) {
-            switch (cert->algorithm) {
-                case TLS_RSA_SIGN_RSA:
-                    res += snprintf(buffer + res, len - res, "RSA_SIGN_RSA\n  PK algorithm: ");
-                    break;
-                case TLS_RSA_SIGN_MD5:
-                    res += snprintf(buffer + res, len - res, "RSA_SIGN_MD5\n  PK algorithm: ");
-                    break;
-                case TLS_RSA_SIGN_SHA1:
-                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA1\n  PK algorithm: ");
-                    break;
-                case TLS_RSA_SIGN_SHA256:
-                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA256\n  PK algorithm: ");
-                    break;
-                case TLS_RSA_SIGN_SHA384:
-                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA384\n  PK algorithm: ");
-                    break;
-                case TLS_RSA_SIGN_SHA512:
-                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA512\n  PK algorithm: ");
-                    break;
-                case TLS_EC_PUBLIC_KEY:
-                    res += snprintf(buffer + res, len - res, "EC_PUBLIC_KEY\n  PK algorithm: ");
-                    break;
-                default:
-                    res += snprintf(buffer + res, len - res, "not supported\n  PK algorithm: ");
-            }
-        }
+        res += snprintf(buffer + res, len - res, "\n  Key (%i bits, ", cert->pk_len * 8);
         if (res > 0) {
             switch (cert->key_algorithm) {
                 case TLS_RSA_SIGN_RSA:
@@ -1561,11 +1533,37 @@ char *tls_certificate_to_string(TLSCertificate *cert, char *buffer, int len) {
                     break;
             }
         }
-        res += snprintf(buffer + res, len - res, "\n  Key: ");
+        res += snprintf(buffer + res, len - res, "):\n");
         if (res > 0) {
             for (i = 0; i < cert->pk_len; i++)
                 res += snprintf(buffer + res, len - res, "%02x", (int)cert->pk[i]);
-            res += snprintf(buffer + res, len - res, "\n  Signature (%i bits): ", cert->sign_len * 8);
+            res += snprintf(buffer + res, len - res, "\n  Signature (%i bits, ", cert->sign_len * 8);
+            switch (cert->algorithm) {
+                case TLS_RSA_SIGN_RSA:
+                    res += snprintf(buffer + res, len - res, "RSA_SIGN_RSA):\n");
+                    break;
+                case TLS_RSA_SIGN_MD5:
+                    res += snprintf(buffer + res, len - res, "RSA_SIGN_MD5):\n");
+                    break;
+                case TLS_RSA_SIGN_SHA1:
+                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA1):\n");
+                    break;
+                case TLS_RSA_SIGN_SHA256:
+                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA256):\n");
+                    break;
+                case TLS_RSA_SIGN_SHA384:
+                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA384):\n");
+                    break;
+                case TLS_RSA_SIGN_SHA512:
+                    res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA512):\n");
+                    break;
+                case TLS_EC_PUBLIC_KEY:
+                    res += snprintf(buffer + res, len - res, "EC_PUBLIC_KEY):\n");
+                    break;
+                default:
+                    res += snprintf(buffer + res, len - res, "not supported):\n");
+            }
+
             for (i = 0; i < cert->sign_len; i++)
                 res += snprintf(buffer + res, len - res, "%02x", (int)cert->sign_key[i]);
         }
