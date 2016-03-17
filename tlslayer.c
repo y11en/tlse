@@ -422,6 +422,8 @@ typedef struct {
     // handshake messages flags
     unsigned char hs_messages[11];
     void *user_data;
+    TLSCertificate **root_certificates;
+    unsigned int root_count;
 } TLSContext;
 
 typedef struct {
@@ -715,7 +717,7 @@ unsigned char *__private_tls_decrypt_rsa(TLSContext *context, const unsigned cha
     err = rsa_import(context->private_key->der_bytes, context->private_key->der_len, &key);
     
     if (err) {
-        DEBUG_PRINT("Error inporting RSA key (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA key (code: %i)", err);
         return NULL;
     }
     unsigned char *out = (unsigned char *)TLS_MALLOC(len);
@@ -746,7 +748,7 @@ unsigned char *__private_tls_encrypt_rsa(TLSContext *context, const unsigned cha
     err = rsa_import(context->certificates[0]->der_bytes, context->certificates[0]->der_len, &key);
     
     if (err) {
-        DEBUG_PRINT("Error inporting RSA certificate (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)", err);
         return NULL;
     }
     unsigned long out_size = __TLS_MAX_RSA_KEY;
@@ -784,7 +786,7 @@ int __private_tls_verify_rsa(TLSContext *context, unsigned int hash_type, const 
         err = rsa_import(context->certificates[0]->der_bytes, context->certificates[0]->der_len, &key);
     }
     if (err) {
-        DEBUG_PRINT("Error inporting RSA certificate (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)", err);
         return TLS_GENERIC_ERROR;
     }
     int hash_idx = -1;
@@ -890,7 +892,7 @@ int __private_tls_sign_rsa(TLSContext *context, unsigned int hash_type, const un
     err = rsa_import(context->private_key->der_bytes, context->private_key->der_len, &key);
     
     if (err) {
-        DEBUG_PRINT("Error inporting RSA certificate (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)", err);
         return TLS_GENERIC_ERROR;
     }
     int hash_idx = -1;
@@ -2305,6 +2307,8 @@ TLSContext *tls_accept(TLSContext *context) {
         child->certificates_count = context->certificates_count;
         child->private_key = context->private_key;
         child->exportable = context->exportable;
+        child->root_certificates = context->root_certificates;
+        child->root_count = context->root_count;
 #ifdef TLS_FORWARD_SECRECY
         child->default_dhe_p = context->default_dhe_p;
         child->default_dhe_g = context->default_dhe_g;
@@ -2381,6 +2385,10 @@ void tls_destroy_context(TLSContext *context) {
         if (context->certificates) {
             for (i = 0; i < context->certificates_count; i++)
                 tls_destroy_certificate(context->certificates[i]);
+        }
+        if (context->root_certificates) {
+            for (i = 0; i < context->root_count; i++)
+                tls_destroy_certificate(context->root_certificates[i]);
         }
         if (context->private_key)
             tls_destroy_certificate(context->private_key);
@@ -4290,22 +4298,22 @@ int tls_certificate_verify_signature(TLSCertificate *cert, TLSCertificate *paren
     if (hash_len <= 0)
         return 0;
 
-    int hash_type = -1;
+    int hash_index = -1;
     switch (cert->algorithm) {
         case TLS_RSA_SIGN_MD5:
-            hash_type = md5;
+            hash_index = find_hash("md5");
             break;
         case TLS_RSA_SIGN_SHA1:
-            hash_type = sha1;
+            hash_index = find_hash("sha1");
             break;
         case TLS_RSA_SIGN_SHA256:
-            hash_type = sha256;
+            hash_index = find_hash("sha256");
             break;
         case TLS_RSA_SIGN_SHA384:
-            hash_type = sha384;
+            hash_index = find_hash("sha384");
             break;
         case TLS_RSA_SIGN_SHA512:
-            hash_type = sha512;
+            hash_index = find_hash("sha512");
             break;
         default:
             DEBUG_PRINT("UNKNOWN SIGNATURE ALGORITHM\n");
@@ -4315,7 +4323,8 @@ int tls_certificate_verify_signature(TLSCertificate *cert, TLSCertificate *paren
     rsa_key key;
     int err = rsa_import(parent->der_bytes, parent->der_len, &key);
     if (err) {
-        DEBUG_PRINT("Error inporting RSA certificate (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)\n", err);
+        DEBUG_DUMP_HEX_LABEL("CERTIFICATE", parent->der_bytes, parent->der_len);
         return 0;
     }
     int rsa_stat = 0;
@@ -4325,14 +4334,45 @@ int tls_certificate_verify_signature(TLSCertificate *cert, TLSCertificate *paren
         signature++;
         signature_len--;
     }
-    err = rsa_verify_hash_ex(signature, signature_len, cert->fingerprint, hash_len, LTC_LTC_PKCS_1_V1_5, hash_type, 0, &rsa_stat, &key);
+    err = rsa_verify_hash_ex(signature, signature_len, cert->fingerprint, hash_len, LTC_LTC_PKCS_1_V1_5, hash_index, 0, &rsa_stat, &key);
     rsa_free(&key);
     if (err) {
-        DEBUG_PRINT("ERROR %i\n", err);
+        DEBUG_PRINT("HASH VERIFY ERROR %i\n", err);
         return 0;
     }
     DEBUG_PRINT("CERTIFICATE VALIDATION: %i\n", rsa_stat);
     return rsa_stat;
+}
+
+int tls_certificate_chain_is_valid(TLSCertificate **certificates, int len) {
+    if ((!certificates) || (!len))
+        return bad_certificate;
+
+    int i;
+    len--;
+
+    // check 
+    for (i = 0; i < len; i++) {
+        if (!tls_certificate_verify_signature(certificates[i], certificates[i+1]))
+            return bad_certificate;
+    }
+    return 0;
+}
+
+int tls_certificate_chain_is_valid_root(TLSContext *context, TLSCertificate **certificates, int len) {
+    if ((!certificates) || (!len) || (!context->root_certificates) || (!context->root_count))
+        return bad_certificate;
+    int i;
+    int j;
+    for (i = 0; i < len; i++) {
+        for (j = 0; j < context->root_count; j++) {
+            DEBUG_PRINT("CHECKING AGAINST: %s\n", context->root_certificates[j]->subject);
+            // if any root validates any certificate in the chain, then is root validated
+            if (tls_certificate_verify_signature(certificates[i], context->root_certificates[j]))
+                return 0;
+        }
+    }
+    return bad_certificate;
 }
 
 int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsigned char *buffer, int size, int level, unsigned int *fields, unsigned char *has_key, int client_cert) {
@@ -4407,7 +4447,7 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
             }
             local_has_key = 0;
             __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert);
-            if ((local_has_key) && (context) && ((!context->is_server) || (client_cert)) && (__is_field(fields, pk_id))) {
+            if (((local_has_key) && (context) && ((!context->is_server) || (client_cert)) || (!context)) && (__is_field(fields, pk_id))) {
                 TLS_FREE(cert->der_bytes);
                 temp = length + (pos - start_pos);
                 cert->der_bytes = (unsigned char *)TLS_MALLOC(temp);
@@ -5174,6 +5214,44 @@ int tls_sni_set(TLSContext *context, const char *sni) {
         }
     }
     return 0;
+}
+
+int tls_load_root_certificates(TLSContext *context, const unsigned char *pem_buffer, int pem_size) {
+    if (!context)
+        return TLS_GENERIC_ERROR;
+
+    unsigned int len;
+    int idx = 0;
+
+    do {
+        unsigned char *data = tls_pem_decode(pem_buffer, pem_size, idx++, &len);
+        if ((!data) || (!len))
+            break;
+        TLSCertificate *cert = asn1_parse(NULL, data, len, 0);
+        if (cert) {
+            if (cert->version == 2) {
+                if (cert->priv) {
+                    DEBUG_PRINT("WARNING - parse error (private key encountered in certificate)\n");
+                    TLS_FREE(cert->priv);
+                    cert->priv = NULL;
+                    cert->priv_len = 0;
+                }
+                context->root_certificates = (TLSCertificate **)TLS_REALLOC(context->root_certificates, (context->root_count + 1) * sizeof(TLSCertificate));
+                if (!context->root_certificates) {
+                    context->root_count = 0;
+                    return TLS_GENERIC_ERROR;
+                }
+                context->root_certificates[context->root_count] = cert;
+                context->root_count++;
+                DEBUG_PRINT("Loaded certificate: %i\n", (int)context->root_count);
+            } else {
+                DEBUG_PRINT("WARNING - certificate version error (v%i)\n", (int)cert->version);
+                tls_destroy_certificate(cert);
+            }
+        }
+        TLS_FREE(data);
+    } while (1);
+    return context->root_count;
 }
 
 #ifdef DEBUG
