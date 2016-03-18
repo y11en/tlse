@@ -36,30 +36,24 @@ int verify(TLSContext *context, TLSCertificate **certificate_chain, int len) {
     if (err)
         return err;
 
-    // Uncomment next lines to perform certificate validation agains ROOT CA
-    // err = tls_certificate_chain_is_valid_root(context, certificate_chain, len);
-    // if (err)
-    //    return err;
-    // fprintf(stderr, "Certificate OK\n");
+    const char *sni = tls_sni(context);
+    if ((len > 0) && (sni)) {
+        err = tls_certificate_valid_subject(certificate_chain[0], sni);
+        if (err)
+            return err;
+    }
+
+    // Perform certificate validation agains ROOT CA
+    err = tls_certificate_chain_is_valid_root(context, certificate_chain, len);
+    if (err)
+        return err;
+
+    fprintf(stderr, "Certificate OK\n");
 
     //return certificate_expired;
     //return certificate_revoked;
     //return certificate_unknown;
     return no_error;
-}
-
-int read_from_file(const char *fname, void *buf, int max_len) {
-    FILE *f = fopen(fname, "rb");
-    if (f) {
-        int size = fread(buf, 1, max_len - 1, f);
-        if (size > 0)
-            ((unsigned char *)buf)[size] = 0;
-        else
-            ((unsigned char *)buf)[0] = 0;
-        fclose(f);
-        return size;
-    }
-    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -70,7 +64,7 @@ int main(int argc, char *argv[]) {
     char msg[] = "GET %s HTTP/1.1\r\nHost: %s:%i\r\nConnection: close\r\n\r\n";
     char msg_buffer[0xFF];
     char buffer[0xFFF];
-    char root_buffer[0xFFFF];
+    char root_buffer[0xFFFFF];
     char *ref_argv[] = {"", "google.com", "443"};
     char *req_file = "/";
 #ifdef _WIN32
@@ -90,10 +84,9 @@ int main(int argc, char *argv[]) {
     // both are mapped to TLSContext
     SSL *clientssl = SSL_CTX_new(SSLv3_client_method());
 
-    // uncomment next lines to load ROOT CA from testcert/root.pem
-    // int root_size = read_from_file("testcert/root.pem", root_buffer, sizeof(root_buffer));
-    // if (root_size)
-    //     tls_load_root_certificates(clientssl, root_buffer, root_size);
+    // uncomment next lines to load ROOT CA from root.pem
+    int res = SSL_CTX_root_ca(clientssl, "../root.pem");
+    fprintf(stderr, "Loaded %i certificates\n", res);
 
     // =========================================================================== //
     // IMPORTANT NOTE:
@@ -102,6 +95,8 @@ int main(int argc, char *argv[]) {
     // =========================================================================== //
 
     // optionally, we can set a certificate validation callback function
+    // if set_verify is not called, and root ca is set, `tls_default_verify`
+    // will be used (does exactly what `verify` does in this example)
     SSL_CTX_set_verify(clientssl, SSL_VERIFY_PEER, verify);
     
     if (!clientssl) {
