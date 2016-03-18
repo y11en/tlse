@@ -1364,6 +1364,13 @@ unsigned char *tls_pem_decode(const unsigned char *data_in, unsigned int input_l
         if ((data_in[i] == '\n') || (data_in[i] == '\r'))
             continue;
         
+        if (data_in[i] != '-')  {
+            // read entire line
+            while ((i < input_length) && (data_in[i] != '\n'))
+                i++;
+            continue;
+        }
+
         if (data_in[i] == '-') {
             unsigned int end_idx = i;
             //read until end of line
@@ -1407,6 +1414,51 @@ TLSCertificate *tls_create_certificate() {
     return cert;
 }
 
+int tls_certificate_valid_subject(TLSCertificate *cert, const char *subject) {
+    if (!cert)
+        return certificate_unknown;
+
+    // no subjects ...
+    if (((!cert->subject) || (!cert->subject[0])) && ((!subject) || (!subject[0])))
+        return 0;
+
+    if ((!subject) || (!subject[0]))
+        return bad_certificate;
+
+    if ((!cert->subject) || (!cert->subject[0]))
+        return bad_certificate;
+
+    // exact match
+    if (!strcmp((const char *)cert->subject, subject))
+        return 0;
+
+    char *wildcard = strchr((const char *)cert->subject, '*');
+    if (wildcard) {
+        if (!wildcard[0]) {
+            // subject is [*]
+            if ((void *)wildcard == (void *)cert->subject)
+                return 0;
+            // subhect is [something*] .. invalid
+            return bad_certificate;
+        }
+        wildcard++;
+        char *match = strstr(subject, wildcard);
+        if ((!match) && (wildcard[0] == '.')) {
+            // check *.domain.com agains domain.com
+            wildcard++;
+            if (!strcasecmp(subject, wildcard))
+                return 0;
+        }
+        if (match) {
+            // check if is exact match
+            if (!strcasecmp(match, wildcard))
+                return 0;
+        }
+    }
+
+    return bad_certificate;
+}
+
 int tls_certificate_is_valid(TLSCertificate *cert) {
     if (!cert)
         return certificate_unknown;
@@ -1420,7 +1472,7 @@ int tls_certificate_is_valid(TLSCertificate *cert) {
     struct tm *utct = gmtime(&t);
     if (utct) {
         current_time[0] = 0;
-        snprintf(current_time, sizeof(current_time), "%i%02d%02d%02d%02d%02dZ", utct->tm_year - 100, utct->tm_mon + 1, utct->tm_mday, utct->tm_hour, utct->tm_min, utct->tm_sec);
+        snprintf(current_time, sizeof(current_time), "%04d%02d%02d%02d%02d%02dZ", 1900 + utct->tm_year, utct->tm_mon + 1, utct->tm_mday, utct->tm_hour, utct->tm_min, utct->tm_sec);
         if (strcasecmp((char *)cert->not_before, current_time) > 0) {
             DEBUG_PRINT("Certificate is not yer valid, now: %s (validity: %s - %s)\n", current_time, cert->not_before, cert->not_after);
             return certificate_expired;
@@ -1442,6 +1494,27 @@ void tls_certificate_set_copy(unsigned char **member, const unsigned char *val, 
         *member = (unsigned char *)TLS_MALLOC(len + 1);
         if (*member) {
             memcpy(*member, val, len);
+            (*member)[len] = 0;
+        }
+    } else
+        *member = NULL;
+}
+
+void tls_certificate_set_copy_date(unsigned char **member, const unsigned char *val, int len) {
+    if (!member)
+        return;
+    TLS_FREE(*member);
+    if (len > 4) {
+        *member = (unsigned char *)TLS_MALLOC(len + 3);
+        if (*member) {
+            if (val[0] == '9') {
+                (*member)[0]='1';
+                (*member)[1]='9';
+            } else {
+                (*member)[0]='2';
+                (*member)[1]='0';
+            }
+            memcpy(*member + 2, val, len);
             (*member)[len] = 0;
         }
     } else
@@ -1472,7 +1545,7 @@ char *tls_certificate_to_string(TLSCertificate *cert, char *buffer, int len) {
         return NULL;
     buffer[0] = 0;
     if (cert->version) {
-        int res = snprintf(buffer, len, "X.509v%i certificate\n  Issued by: [%s]%s (%s)\n  Issued to: [%s]%s (%s, %s)\n  Subject: %s\n  Validity: 20%s - 20%s\n  Serial number: ",
+        int res = snprintf(buffer, len, "X.509v%i certificate\n  Issued by: [%s]%s (%s)\n  Issued to: [%s]%s (%s, %s)\n  Subject: %s\n  Validity: %s - %s\n  Serial number: ",
                            (int)cert->version,
                            cert->issuer_country, cert->issuer_entity, cert->issuer_subject,
                            cert->country, cert->entity, cert->state, cert->location,
@@ -3784,9 +3857,11 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
         if (type != 0x00)
             __private_tls_update_hash(context, buf, payload_size + 1);
         
-        if (certificate_verify_alert != no_error)
+        if (certificate_verify_alert != no_error) {
             __private_tls_write_packet(tls_build_alert(context, 1, certificate_verify_alert));
-        
+            context->critical_error = 1;
+        }
+
         if (payload_res < 0) {
             switch (payload_res) {
                 case TLS_UNEXPECTED_MESSAGE:
@@ -4408,6 +4483,10 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
         if (level <= __TLS_ASN1_MAXLEVEL)
             fields[level - 1] = idx;
         unsigned int length = asn1_get_len((unsigned char *)&buffer[pos], size - pos, &octets);
+        if ((octets > 4) || (octets > size - pos))  {
+            DEBUG_PRINT("CANNOT READ CERTIFICATE\n");
+            return pos;
+        }
         pos += octets;
         CHECK_SIZE(length, size - pos, TLS_NEED_MORE_DATA)
         //DEBUG_PRINT("FIRST: %x => %x (%i)\n", (int)first, (int)type, length);
@@ -4563,9 +4642,9 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
                     
                     if (__is_field(fields, validity_id)) {
                         if (idx == 1)
-                            tls_certificate_set_copy(&cert->not_before, &buffer[pos], length);
+                            tls_certificate_set_copy_date(&cert->not_before, &buffer[pos], length);
                         else
-                            tls_certificate_set_copy(&cert->not_after, &buffer[pos], length);
+                            tls_certificate_set_copy_date(&cert->not_after, &buffer[pos], length);
                     }
                     break;
                 case 0x18:
@@ -5263,6 +5342,39 @@ int tls_load_root_certificates(TLSContext *context, const unsigned char *pem_buf
     return context->root_count;
 }
 
+int tls_default_verify(TLSContext *context, TLSCertificate **certificate_chain, int len) {
+    int i;
+    int err;
+
+    if (certificate_chain) {
+        for (i = 0; i < len; i++) {
+            TLSCertificate *certificate = certificate_chain[i];
+            // check validity date
+            err = tls_certificate_is_valid(certificate);
+            if (err)
+                return err;
+        }
+    }
+    // check if chain is valid
+    err = tls_certificate_chain_is_valid(certificate_chain, len);
+    if (err)
+        return err;
+
+    // check certificate chain
+    if ((context->sni) && (len > 0)) {
+        err = tls_certificate_valid_subject(certificate_chain[0], context->sni);
+        if (err)
+            return err;
+    }
+
+    err = tls_certificate_chain_is_valid_root(context, certificate_chain, len);
+    if (err)
+        return err;
+
+    DEBUG_PRINT("Certificate OK\n");
+    return no_error;
+}
+
 #ifdef DEBUG
 void tls_print_certificate(const char *fname) {
     unsigned char buf[0xFFFF];
@@ -5395,6 +5507,68 @@ int SSL_set_fd(TLSContext *context, int socket) {
     }
     ssl_data->fd = socket;
     return 0;
+}
+
+void *SSL_set_userdata(TLSContext *context, void *data) {
+    if (!context)
+        return NULL;
+    SSLUserData *ssl_data = (SSLUserData *)context->user_data;
+    if (!ssl_data) {
+        ssl_data = (SSLUserData *)TLS_MALLOC(sizeof(SSLUserData));
+        if (!ssl_data)
+            return NULL;
+        memset(ssl_data, 0, sizeof(SSLUserData));
+        context->user_data = ssl_data;
+    }
+    void *old_data = ssl_data->user_data;
+    ssl_data->user_data = data;
+    return old_data;
+}
+
+void *SSL_userdata(TLSContext *context) {
+    if (!context)
+        return NULL;
+    SSLUserData *ssl_data = (SSLUserData *)context->user_data;
+    if (!ssl_data)
+        return NULL;
+
+    return ssl_data->user_data;
+}
+
+int SSL_CTX_root_ca(TLSContext *context, const char *pem_filename) {
+    if (!context)
+        return TLS_GENERIC_ERROR;
+
+    int count = TLS_GENERIC_ERROR;
+    FILE *f = fopen(pem_filename, "rb");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        long size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (size) {
+            unsigned char *buf = (unsigned char *)TLS_MALLOC(size + 1);
+            if (buf) {
+                buf[size] = 1;
+                if (fread(buf, 1, size, f) == size) {
+                    count = tls_load_root_certificates(context, buf, size);
+                    if (count > 0) {
+                        SSLUserData *ssl_data = (SSLUserData *)context->user_data;
+                        if (!ssl_data) {
+                            ssl_data = (SSLUserData *)TLS_MALLOC(sizeof(SSLUserData));
+                            if (!ssl_data)
+                                return TLS_NO_MEMORY;
+                            memset(ssl_data, 0, sizeof(SSLUserData));
+                            context->user_data = ssl_data;
+                        }
+                        if (!ssl_data->certificate_verify)
+                            ssl_data->certificate_verify = tls_default_verify;
+                    }
+                }
+            }
+        }
+        fclose(f);
+    }
+    return count;
 }
 
 void SSL_CTX_set_verify(TLSContext *context, int mode, tls_validation_function verify_callback) {
