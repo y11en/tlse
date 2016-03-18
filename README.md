@@ -37,6 +37,8 @@ Now it supports client certificate. To request a client certificate, call ``tls_
 
 It implements SNI extension (Server Name Indication). To get the SNI string call ``tls_sni(TLSContext *)``.
 
+The library supports certificate validation by using ``tls_certificate_chain_is_valid``, ``tls_certificate_chain_is_valid_root``, ``tls_certificate_valid_subject`` and ``tls_certificate_is_valid``(checks not before/not after).
+
 This library was written to be used by my other projects [Concept Applications Server](https://github.com/Devronium/ConceptApplicationServer "Concept Application Server") and [Concept Native Client](https://github.com/Devronium/ConceptClientQT "Concept Client QT")
 
 Examples
