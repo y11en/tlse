@@ -2426,6 +2426,8 @@ TLSContext *tls_create_context(unsigned char is_server, unsigned short version) 
 
 #ifdef TLS_FORWARD_SECRECY
 const ECCCurveParameters *tls_set_curve(TLSContext *context, const ECCCurveParameters *curve) {
+    if (!context->is_server)
+        return NULL;
     const ECCCurveParameters *old_curve = context->curve;
     context->curve = curve;
     return old_curve;
