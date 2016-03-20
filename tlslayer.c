@@ -353,7 +353,7 @@ typedef struct {
     const char *order;
 } ECCCurveParameters;
 
-static ECCCurveParameters secp192r1 = {
+static const ECCCurveParameters secp192r1 = {
     24,
     19,
     "secp224r1",
@@ -365,7 +365,7 @@ static ECCCurveParameters secp192r1 = {
     "FFFFFFFFFFFFFFFFFFFFFFFF99DEF836146BC9B1B4D22831"  // order (n)
 };
 
-static ECCCurveParameters secp224r1 = {
+static const ECCCurveParameters secp224r1 = {
     28,
     21,
     "secp224r1",
@@ -377,7 +377,7 @@ static ECCCurveParameters secp224r1 = {
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFF16A2E0B8F03E13DD29455C5C2A3D"  // order (n)
 };
 
-static ECCCurveParameters secp256r1 = {
+static const ECCCurveParameters secp256r1 = {
     32,
     23,
     "secp256r1",
@@ -389,7 +389,7 @@ static ECCCurveParameters secp256r1 = {
     "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551"  // order (n)
 };
 
-static ECCCurveParameters secp384r1 = {
+static const ECCCurveParameters secp384r1 = {
     48,
     24,
     "secp384r1",
@@ -401,7 +401,7 @@ static ECCCurveParameters secp384r1 = {
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973"  // order (n)
 };
 
-static ECCCurveParameters secp521r1 = {
+static const ECCCurveParameters secp521r1 = {
     66,
     25,
     "secp521r1",
@@ -413,7 +413,7 @@ static ECCCurveParameters secp521r1 = {
     "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
 };
 
-static ECCCurveParameters *default_curve = &secp384r1;
+static const ECCCurveParameters *default_curve = &secp384r1;
 #endif
 
 typedef struct {
@@ -431,7 +431,7 @@ typedef struct {
     ecc_key *ecc_dhe;
     char *default_dhe_p;
     char *default_dhe_g;
-    ECCCurveParameters *curve;
+    const ECCCurveParameters *curve;
 #endif
     TLSCertificate **client_certificates;
     unsigned int certificates_count;
@@ -725,7 +725,7 @@ unsigned char *__private_tls_decrypt_ecc_dhe(TLSContext *context, const unsigned
     
     ltc_ecc_set_type dp;
     memset(&dp, 0, sizeof(dp));
-    ECCCurveParameters *curve;
+    const ECCCurveParameters *curve;
     if (context->curve)
         curve = context->curve;
     else
@@ -2424,6 +2424,14 @@ TLSContext *tls_create_context(unsigned char is_server, unsigned short version) 
     return context;
 }
 
+#ifdef TLS_FORWARD_SECRECY
+const ECCCurveParameters *tls_set_curve(TLSContext *context, const ECCCurveParameters *curve) {
+    const ECCCurveParameters *old_curve = context->curve;
+    context->curve = curve;
+    return old_curve;
+}
+#endif
+
 TLSContext *tls_accept(TLSContext *context) {
     if ((!context) || (!context->is_server))
         return NULL;
@@ -2443,6 +2451,7 @@ TLSContext *tls_accept(TLSContext *context) {
 #ifdef TLS_FORWARD_SECRECY
         child->default_dhe_p = context->default_dhe_p;
         child->default_dhe_g = context->default_dhe_g;
+        child->curve = context->curve;
 #endif
     }
     return child;
@@ -3571,7 +3580,7 @@ int tls_parse_server_key_exchange(TLSContext *context, const unsigned char *buf,
     DEBUG_DUMP_HEX_LABEL("BYTES", buf, buf_len);
     unsigned char has_ds_params = 0;
 #ifdef TLS_FORWARD_SECRECY
-    ECCCurveParameters *curve = NULL;
+    const ECCCurveParameters *curve = NULL;
     const unsigned char *pk_key = NULL;
     unsigned int key_size = 0;
     int ephemeral = tls_cipher_is_ephemeral(context);
