@@ -51,6 +51,8 @@
 #define SSL_COMPATIBLE_INTERFACE
 // support forward secrecy (Diffie-Hellman ephemeral)
 #define TLS_FORWARD_SECRECY
+// support client-side ECDHE
+#define TLS_CLIENT_ECDHE
 
 #define TLS_DH_DEFAULT_P            "87A8E61DB4B6663CFFBBD19C651959998CEEF608660DD0F25D2CEED4435E3B00E00DF8F1D61957D4FAF7DF4561B2AA3016C3D91134096FAA3BF4296D830E9A7C209E0C6497517ABD5A8A9D306BCF67ED91F9E6725B4758C022E0B1EF4275BF7B6C5BFC11D45F9088B941F54EB1E59BB8BC39A0BF12307F5C4FDB70C581B23F76B63ACAE1CAA6B7902D52526735488A0EF13C6D9A51BFA4AB3AD8347796524D8EF6A167B5A41825D967E144E5140564251CCACB83E6B486F6B3CA3F7971506026C0B857F689962856DED4010ABD0BE621C3A3960A54E710C375F26375D7014103A4B54330C198AF126116D2276E11715F693877FAD7EF09CADB094AE91E1A1597"
 #define TLS_DH_DEFAULT_G            "3FB32C9B73134D0B2E77506660EDBD484CA7B18F21EF205407F4793A1A0BA12510DBC15077BE463FFF4FED4AAC0BB555BE3A6C1B0C6B47B1BC3773BF7E8C6F62901228F8C28CBB18A55AE31341000A650196F931C77A57F2DDF463E5E9EC144B777DE62AAAB8A8628AC376D282D6ED3864E67982428EBC831D14348F6F2F9193B5045AF2767164E1DFC967C1FB3F2E55A4BD1BFFE83B9C80D052B985D182EA0ADB2A3B7313D3FE14C8484B1E052588B9B7D2BBD2DF016199ECD06E1557CD0915B3353BBB64E0EC377FD028370DF92B52C7891428CDC67EB6184B523D1DB246C32F63078490F00EF8D647D148D47954515E2327CFEF98C582664B4C0F6CC41659"
@@ -351,6 +353,30 @@ typedef struct {
     const char *order;
 } ECCCurveParameters;
 
+static ECCCurveParameters secp192r1 = {
+    24,
+    19,
+    "secp224r1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFF", // P
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFC", // A
+    "64210519E59C80E70FA7E9AB72243049FEB8DEECC146B9B1", // B
+    "188DA80EB03090F67CBF20EB43A18800F4FF0AFD82FF1012", // Gx
+    "07192B95FFC8DA78631011ED6B24CDD573F977A11E794811", // Gy
+    "FFFFFFFFFFFFFFFFFFFFFFFF99DEF836146BC9B1B4D22831"  // order (n)
+};
+
+static ECCCurveParameters secp224r1 = {
+    28,
+    21,
+    "secp224r1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000000000000000001", // P
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFE", // A
+    "B4050A850C04B3ABF54132565044B0B7D7BFD8BA270B39432355FFB4", // B
+    "B70E0CBD6BB4BF7F321390B94A03C1D356C21122343280D6115C1D21", // Gx
+    "BD376388B5F723FB4C22DFE6CD4375A05A07476444D5819985007E34", // Gy
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFF16A2E0B8F03E13DD29455C5C2A3D"  // order (n)
+};
+
 static ECCCurveParameters secp256r1 = {
     32,
     23,
@@ -362,6 +388,32 @@ static ECCCurveParameters secp256r1 = {
     "4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5", // Gy
     "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551"  // order (n)
 };
+
+static ECCCurveParameters secp384r1 = {
+    48,
+    24,
+    "secp384r1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFF", // P
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFC", // A
+    "B3312FA7E23EE7E4988E056BE3F82D19181D9C6EFE8141120314088F5013875AC656398D8A2ED19D2A85C8EDD3EC2AEF", // B
+    "AA87CA22BE8B05378EB1C71EF320AD746E1D3B628BA79B9859F741E082542A385502F25DBF55296C3A545E3872760AB7", // Gx
+    "3617DE4A96262C6F5D9E98BF9292DC29F8F41DBD289A147CE9DA3113B5F0B8C00A60B1CE1D7E819D7A431D7C90EA0E5F", // Gy
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973"  // order (n)
+};
+
+static ECCCurveParameters secp521r1 = {
+    66,
+    25,
+    "secp521r1",
+    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", // P
+    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC", // A
+    "0051953EB9618E1C9A1F929A21A0B68540EEA2DA725B99B315F3B8B489918EF109E156193951EC7E937B1652C0BD3BB1BF073573DF883D2C34F1EF451FD46B503F00", // B
+    "00C6858E06B70404E9CD9E3ECB662395B4429C648139053FB521F828AF606B4D3DBAA14B5E77EFE75928FE1DC127A2FFA8DE3348B3C1856A429BF97E7E31C2E5BD66", // Gx
+    "011839296A789A3BC0045C8A5FB42C7D1BD998F54449579B446817AFBD17273E662C97EE72995EF42640C550B9013FAD0761353C7086A272C24088BE94769FD16650", // Gy
+    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
+};
+
+static ECCCurveParameters *default_curve = &secp384r1;
 #endif
 
 typedef struct {
@@ -379,6 +431,7 @@ typedef struct {
     ecc_key *ecc_dhe;
     char *default_dhe_p;
     char *default_dhe_g;
+    ECCCurveParameters *curve;
 #endif
     TLSCertificate **client_certificates;
     unsigned int certificates_count;
@@ -672,13 +725,18 @@ unsigned char *__private_tls_decrypt_ecc_dhe(TLSContext *context, const unsigned
     
     ltc_ecc_set_type dp;
     memset(&dp, 0, sizeof(dp));
-    dp.size = secp256r1.size;
-    dp.name = (char *)secp256r1.name;
-    dp.B = (char *)secp256r1.B;
-    dp.prime = (char *)secp256r1.P;
-    dp.Gx = (char *)secp256r1.Gx;
-    dp.Gy = (char *)secp256r1.Gy;
-    dp.order = (char *)secp256r1.order;
+    ECCCurveParameters *curve;
+    if (context->curve)
+        curve = context->curve;
+    else
+        curve = default_curve;
+    dp.size = curve->size;
+    dp.name = (char *)curve->name;
+    dp.B = (char *)curve->B;
+    dp.prime = (char *)curve->P;
+    dp.Gx = (char *)curve->Gx;
+    dp.Gy = (char *)curve->Gy;
+    dp.order = (char *)curve->order;
     
     ecc_key client_key;
     memset(&client_key, 0, sizeof(client_key));
@@ -2777,25 +2835,41 @@ TLSPacket *tls_build_client_key_exchange(TLSContext *context) {
     tls_packet_uint8(packet, 0x10);
 #ifdef TLS_FORWARD_SECRECY
     int ephemeral = tls_cipher_is_ephemeral(context);
-    if ((ephemeral == 1) && (context->premaster_key) && (context->premaster_key_len)) {
-        unsigned char dh_Ys[0xFFF];
-        unsigned char dh_p[0xFFF];
-        unsigned char dh_g[0xFFF];
-        unsigned long dh_p_len = sizeof(dh_p);
-        unsigned long dh_g_len = sizeof(dh_g);
-        unsigned long dh_Ys_len = sizeof(dh_Ys);
+    if ((ephemeral) && (context->premaster_key) && (context->premaster_key_len)) {
+        if (ephemeral == 1) {
+            unsigned char dh_Ys[0xFFF];
+            unsigned char dh_p[0xFFF];
+            unsigned char dh_g[0xFFF];
+            unsigned long dh_p_len = sizeof(dh_p);
+            unsigned long dh_g_len = sizeof(dh_g);
+            unsigned long dh_Ys_len = sizeof(dh_Ys);
         
-        if (__private_tls_dh_export_pqY(dh_p, &dh_p_len, dh_g, &dh_g_len, dh_Ys, &dh_Ys_len, context->dhe)) {
-            DEBUG_PRINT("ERROR EXPORTING DHE KEY %x\n", context->dhe);
-            TLS_FREE(packet);
+            if (__private_tls_dh_export_pqY(dh_p, &dh_p_len, dh_g, &dh_g_len, dh_Ys, &dh_Ys_len, context->dhe)) {
+                DEBUG_PRINT("ERROR EXPORTING DHE KEY %x\n", context->dhe);
+                TLS_FREE(packet);
+                __private_tls_dhe_free(context);
+                return NULL;
+            }
             __private_tls_dhe_free(context);
-            return NULL;
+            DEBUG_DUMP_HEX_LABEL("Yc", dh_Ys, dh_Ys_len);
+            tls_packet_uint24(packet, dh_Ys_len + 2);
+            tls_packet_uint16(packet, dh_Ys_len);
+            tls_packet_append(packet, dh_Ys, dh_Ys_len);
+        } else
+        if (context->ecc_dhe) {
+            unsigned char out[__TLS_MAX_RSA_KEY];
+            unsigned long out_len = __TLS_MAX_RSA_KEY;
+            
+            if (ecc_ansi_x963_export(context->ecc_dhe, out, &out_len)) {
+                DEBUG_PRINT("Error exporting ECC key\n");
+                TLS_FREE(packet);
+                return NULL;
+            }
+            __private_tls_ecc_dhe_free(context);
+            tls_packet_uint24(packet, out_len + 1);
+            tls_packet_uint8(packet, out_len);
+            tls_packet_append(packet, out, out_len);
         }
-        __private_tls_dhe_free(context);
-        DEBUG_DUMP_HEX_LABEL("Yc", dh_Ys, dh_Ys_len);
-        tls_packet_uint24(packet, dh_Ys_len + 2);
-        tls_packet_uint16(packet, dh_Ys_len);
-        tls_packet_append(packet, dh_Ys, dh_Ys_len);
         __private_tls_compute_key(context, 48);
     } else
 #endif
@@ -2866,45 +2940,48 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         //dh_g
         //dh_Ys
     } else
-        if (method == KEA_ec_diffie_hellman) {
-            // 3 = named curve
-            tls_packet_uint8(packet, 3);
-            tls_packet_uint16(packet, secp256r1.iana);
-            init_dependencies();
-            __private_tls_ecc_dhe_create(context);
+    if (method == KEA_ec_diffie_hellman) {
+        // 3 = named curve
+        if (!context->curve)
+            context->curve = default_curve;
+        tls_packet_uint8(packet, 3);
+        tls_packet_uint16(packet, context->curve->iana);
+        init_dependencies();
+        __private_tls_ecc_dhe_create(context);
             
-            ltc_ecc_set_type dp;
-            memset(&dp, 0, sizeof(dp));
-            dp.B = (char *)secp256r1.B;
-            dp.size = secp256r1.size;
-            dp.name = (char *)secp256r1.name;
-            dp.prime = (char *)secp256r1.P;
-            dp.Gx = (char *)secp256r1.Gx;
-            dp.Gy = (char *)secp256r1.Gy;
-            dp.order = (char *)secp256r1.order;
-            if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, &dp)) {
-                TLS_FREE(context->ecc_dhe);
-                context->ecc_dhe = NULL;
-                DEBUG_PRINT("Error generatic ECC key\n");
-                TLS_FREE(packet);
-                return NULL;
-            }
-            unsigned char out[__TLS_MAX_RSA_KEY];
-            unsigned long out_len = __TLS_MAX_RSA_KEY;
-            if (ecc_ansi_x963_export(context->ecc_dhe, out, &out_len)) {
-                DEBUG_PRINT("Error exporting ECC key\n");
-                TLS_FREE(packet);
-                return NULL;
-            }
-            tls_packet_uint8(packet, out_len);
-            tls_packet_append(packet, out, out_len);
-        } else
-#endif
-        {
+        ltc_ecc_set_type dp;
+        memset(&dp, 0, sizeof(dp));
+        dp.B = (char *)context->curve->B;
+        dp.size = context->curve->size;
+        dp.name = (char *)context->curve->name;
+        dp.prime = (char *)context->curve->P;
+        dp.Gx = (char *)context->curve->Gx;
+        dp.Gy = (char *)context->curve->Gy;
+        dp.order = (char *)context->curve->order;
+
+        if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, &dp)) {
+            TLS_FREE(context->ecc_dhe);
+            context->ecc_dhe = NULL;
+            DEBUG_PRINT("Error generatic ECC key\n");
             TLS_FREE(packet);
-            DEBUG_PRINT("Unsupported ephemeral method: %i\n", method);
             return NULL;
         }
+        unsigned char out[__TLS_MAX_RSA_KEY];
+        unsigned long out_len = __TLS_MAX_RSA_KEY;
+        if (ecc_ansi_x963_export(context->ecc_dhe, out, &out_len)) {
+            DEBUG_PRINT("Error exporting ECC key\n");
+            TLS_FREE(packet);
+            return NULL;
+        }
+        tls_packet_uint8(packet, out_len);
+        tls_packet_append(packet, out, out_len);
+    } else
+#endif
+    {
+        TLS_FREE(packet);
+        DEBUG_PRINT("Unsupported ephemeral method: %i\n", method);
+        return NULL;
+    }
     
     // signature
     unsigned int params_len = packet->len - start_len;
@@ -2998,8 +3075,17 @@ TLSPacket *tls_build_hello(TLSContext *context) {
 #ifndef STRICT_TLS
             if (context->version >= TLS_V12) {
 #endif
+#ifdef TLS_CLIENT_ECDHE
+                // sizeof ciphers (14 ciphers * 2 bytes)
+                tls_packet_uint16(packet, 28);
+                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA);
+                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA);
+                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256);
+                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256);
+#else
                 // sizeof ciphers (10 ciphers * 2 bytes)
                 tls_packet_uint16(packet, 20);
+#endif
                 // not yet supported, because the first message sent (this one)
                 // is already hashed by the client with sha256 (sha384 not yet supported client-side)
                 // but is fully suported server-side
@@ -3484,10 +3570,53 @@ int tls_parse_server_key_exchange(TLSContext *context, const unsigned char *buf,
     
     DEBUG_DUMP_HEX_LABEL("BYTES", buf, buf_len);
     unsigned char has_ds_params = 0;
+#ifdef TLS_FORWARD_SECRECY
+    ECCCurveParameters *curve = NULL;
+    const unsigned char *pk_key = NULL;
+    unsigned int key_size = 0;
     int ephemeral = tls_cipher_is_ephemeral(context);
     if (ephemeral) {
-        has_ds_params = 1;
+        if (ephemeral == 1) {
+            has_ds_params = 1;
+        } else {
+            if (buf[res++] != 3) {
+                // named curve
+                // any other method is not supported
+                return 0;
+            }
+            CHECK_SIZE(3, buf_len - res, TLS_NEED_MORE_DATA);
+            int iana_n = ntohs(*(unsigned short *)&buf[res]);
+            res += 2;
+            key_size = buf[res];
+            res++;
+            CHECK_SIZE(key_size, buf_len - res, TLS_NEED_MORE_DATA);
+            DEBUG_PRINT("IANA CURVE NUMBER: %i\n", iana_n);
+            switch (iana_n) {
+                case 19:
+                    curve = &secp192r1;
+                    break;
+                case 21:
+                    curve = &secp224r1;
+                    break;
+                case 23:
+                    curve = &secp256r1;
+                    break;
+                case 24:
+                    curve = &secp384r1;
+                    break;
+                case 25:
+                    curve = &secp521r1;
+                    break;
+                default:
+                    DEBUG_PRINT("UNSUPPORTED CURVE");
+                    return TLS_GENERIC_ERROR;
+            }
+            pk_key = &buf[res];
+            res += key_size;
+            context->curve = curve;
+        }
     }
+#endif
     const unsigned char *dh_p = NULL;
     int dh_p_len = 0;
     const unsigned char *dh_g = NULL;
@@ -3552,24 +3681,53 @@ int tls_parse_server_key_exchange(TLSContext *context, const unsigned char *buf,
         DEBUG_PRINT("\n");
     }
 #ifdef TLS_FORWARD_SECRECY
-    __private_tls_dhe_create(context);
-    DEBUG_DUMP_HEX_LABEL("DHP", dh_p, dh_p_len);
-    DEBUG_DUMP_HEX_LABEL("DHG", dh_g, dh_g_len);
-    if (__private_tls_dh_make_key(__TLS_DHE_KEY_SIZE / 8, context->dhe, (const char *)dh_p, (const char *)dh_g, dh_p_len, dh_g_len)) {
-        DEBUG_PRINT("ERROR CREATING DHE KEY\n");
-        TLS_FREE(context->dhe);
-        context->dhe = NULL;
-        return TLS_GENERIC_ERROR;
-    }
-    // ok, send server message
-    // TO DO
-    unsigned int key_size = 0;
-    unsigned char *key = __private_tls_decrypt_dhe(context, dh_Ys, dh_Ys_len, &key_size, 0);
-    DEBUG_DUMP_HEX_LABEL("DH COMMON SECRET", key, key_size);
-    if ((key) && (key_size)) {
+    if (ephemeral == 1) {
+        __private_tls_dhe_create(context);
+        DEBUG_DUMP_HEX_LABEL("DHP", dh_p, dh_p_len);
+        DEBUG_DUMP_HEX_LABEL("DHG", dh_g, dh_g_len);
+        if (__private_tls_dh_make_key(__TLS_DHE_KEY_SIZE / 8, context->dhe, (const char *)dh_p, (const char *)dh_g, dh_p_len, dh_g_len)) {
+            DEBUG_PRINT("ERROR CREATING DHE KEY\n");
+            TLS_FREE(context->dhe);
+            context->dhe = NULL;
+            return TLS_GENERIC_ERROR;
+        }
+
+        unsigned int key_size = 0;
+        unsigned char *key = __private_tls_decrypt_dhe(context, dh_Ys, dh_Ys_len, &key_size, 0);
+        DEBUG_DUMP_HEX_LABEL("DH COMMON SECRET", key, key_size);
+        if ((key) && (key_size)) {
+            TLS_FREE(context->premaster_key);
+            context->premaster_key = key;
+            context->premaster_key_len = key_size;
+        }
+    } else
+    if ((ephemeral == 2) && (curve) && (pk_key) && (key_size)) {
+        init_dependencies();
+        __private_tls_ecc_dhe_create(context);
+            
+        ltc_ecc_set_type dp;
+        memset(&dp, 0, sizeof(dp));
+        dp.B = (char *)curve->B;
+        dp.size = curve->size;
+        dp.name = (char *)curve->name;
+        dp.prime = (char *)curve->P;
+        dp.Gx = (char *)curve->Gx;
+        dp.Gy = (char *)curve->Gy;
+        dp.order = (char *)curve->order;
+        if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, &dp)) {
+            TLS_FREE(context->ecc_dhe);
+            context->ecc_dhe = NULL;
+            DEBUG_PRINT("Error generatic ECC key\n");
+            return TLS_GENERIC_ERROR;
+        }
+        
         TLS_FREE(context->premaster_key);
-        context->premaster_key = key;
-        context->premaster_key_len = key_size;
+        context->premaster_key_len = 0;
+
+        unsigned int out_len = 0;
+        context->premaster_key = __private_tls_decrypt_ecc_dhe(context, pk_key, key_size, &out_len, 0);
+        if (context->premaster_key)
+            context->premaster_key_len = out_len;
     }
 #endif
     return res;
@@ -3593,19 +3751,13 @@ int tls_parse_client_key_exchange(TLSContext *context, const unsigned char *buf,
     if (!size)
         return res;
     
-    //DEBUG_PRINT("CLIENT KE: (%i/%i) ", size, buf_len);
-    //DEBUG_DUMP_HEX(&buf[res], buf_len - res);
-    //DEBUG_PRINT("\n");
-    unsigned char has_param = 1;
-    
-    if (has_param) {
-        dh_res = __private_tls_parse_random(context, &buf[res], size);
-        if (dh_res <= 0) {
-            DEBUG_PRINT("broken key\n");
-            return TLS_BROKEN_PACKET;
-        }
-        DEBUG_PRINT("\n");
+    dh_res = __private_tls_parse_random(context, &buf[res], size);
+    if (dh_res <= 0) {
+        DEBUG_PRINT("broken key\n");
+        return TLS_BROKEN_PACKET;
     }
+    DEBUG_PRINT("\n");
+
     res += size;
     context->connection_status = 2;
     return res;
