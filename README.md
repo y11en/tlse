@@ -1,4 +1,4 @@
-# TLSLayer
+# TLSe
 
 Single C file TLS 1.2 (also 1.1 and 1.0) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
 
@@ -19,7 +19,7 @@ Usage
 ----------
 
 You just 
-`#include "tlslayer.c"`
+`#include "tlse.c"`
 in your code. Everithing is a single file.
 
 Features
