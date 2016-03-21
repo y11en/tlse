@@ -3588,9 +3588,17 @@ TLSPacket *tls_build_hello(TLSContext *context) {
                 int sni_len = 0;
                 if (context->sni)
                     sni_len = strlen(context->sni);
+
+                int extension_len = 0;
+#ifdef TLS_CLIENT_ECDHE
+                extension_len += 14;
+#endif
+                if (sni_len)
+                    extension_len += sni_len + 9;
+
+                tls_packet_uint16(packet, extension_len);
+
                 if (sni_len) {
-                    // extensions length
-                    tls_packet_uint16(packet, sni_len + 9);
                     // sni extension
                     tls_packet_uint16(packet, 0x00);
                     // sni extension len
@@ -3602,10 +3610,18 @@ TLSPacket *tls_build_hello(TLSContext *context) {
                     // sni host len
                     tls_packet_uint16(packet, sni_len);
                     tls_packet_append(packet, (unsigned char *)context->sni, sni_len);
-                } else {
-                    // no extensions
-                    tls_packet_uint16(packet, 0);
                 }
+#ifdef TLS_CLIENT_ECDHE
+                // supported groups
+                tls_packet_uint16(packet, 0x0A);
+                // 4 curves x 2 bytes
+                tls_packet_uint16(packet, 10);
+                tls_packet_uint16(packet, 8);
+                tls_packet_uint16(packet, secp256r1.iana);
+                tls_packet_uint16(packet, secp384r1.iana);
+                tls_packet_uint16(packet, secp521r1.iana);
+                tls_packet_uint16(packet, secp224r1.iana);
+#endif
             }
         }
         
@@ -3619,8 +3635,7 @@ TLSPacket *tls_build_hello(TLSContext *context) {
             packet->buf[payload_pos + 1] = remaining / 0x100;
             remaining %= 0x100;
             packet->buf[payload_pos + 2] = remaining;
-        }
-        
+        }       
         tls_packet_update(packet);
     }
     return packet;
@@ -3828,6 +3843,46 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
                         DEBUG_PRINT("SNI HOST INDICATOR: [%s]\n", context->sni);
                     }
                 }
+            } else
+            if (extension_type == 0x0A) {
+                // supported groups
+                if (buf_len - res > 2) {
+                    unsigned short group_len = ntohs(*(unsigned short *)&buf[res]);
+                    if (buf_len - res >= group_len + 2) {
+                        DEBUG_DUMP_HEX_LABEL("SUPPORTED GROUPS", &buf[res + 2], group_len);
+                        int i;
+                        int selected = 0;
+                        for (i = 0; i < group_len; i += 2) {
+                            unsigned short iana_n = ntohs(*(unsigned short *)&buf[res + 2 + i]);
+                            switch (iana_n) {
+                                case 23:
+                                    context->curve = &secp256r1;
+                                    selected = 1;
+                                    break;
+                                case 24:
+                                    context->curve = &secp384r1;
+                                    selected = 1;
+                                    break;
+                                case 25:
+                                    context->curve = &secp521r1;
+                                    selected = 1;
+                                    break;
+                            }
+                            if (selected) {
+                                DEBUG_PRINT("SELECTED CURVE %s\n", context->curve->name);
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else
+            if (extension_type == 0x0D) {
+                // supported signatures
+                DEBUG_DUMP_HEX_LABEL("SUPPORTED SIGNATURES", &buf[res], extension_len);
+            } else
+            if (extension_type == 0x0B) {
+                // supported point formats
+                DEBUG_DUMP_HEX_LABEL("SUPPORTED POINT FORMATS", &buf[res], extension_len);
             }
             res += extension_len;
         }
