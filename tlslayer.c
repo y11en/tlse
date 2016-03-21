@@ -53,6 +53,8 @@
 #define TLS_FORWARD_SECRECY
 // support client-side ECDHE
 #define TLS_CLIENT_ECDHE
+// suport ecdsa (not working yet)
+// #define TLS_ECDSA_SUPPORTED
 
 #define TLS_DH_DEFAULT_P            "87A8E61DB4B6663CFFBBD19C651959998CEEF608660DD0F25D2CEED4435E3B00E00DF8F1D61957D4FAF7DF4561B2AA3016C3D91134096FAA3BF4296D830E9A7C209E0C6497517ABD5A8A9D306BCF67ED91F9E6725B4758C022E0B1EF4275BF7B6C5BFC11D45F9088B941F54EB1E59BB8BC39A0BF12307F5C4FDB70C581B23F76B63ACAE1CAA6B7902D52526735488A0EF13C6D9A51BFA4AB3AD8347796524D8EF6A167B5A41825D967E144E5140564251CCACB83E6B486F6B3CA3F7971506026C0B857F689962856DED4010ABD0BE621C3A3960A54E710C375F26375D7014103A4B54330C198AF126116D2276E11715F693877FAD7EF09CADB094AE91E1A1597"
 #define TLS_DH_DEFAULT_G            "3FB32C9B73134D0B2E77506660EDBD484CA7B18F21EF205407F4793A1A0BA12510DBC15077BE463FFF4FED4AAC0BB555BE3A6C1B0C6B47B1BC3773BF7E8C6F62901228F8C28CBB18A55AE31341000A650196F931C77A57F2DDF463E5E9EC144B777DE62AAAB8A8628AC376D282D6ED3864E67982428EBC831D14348F6F2F9193B5045AF2767164E1DFC967C1FB3F2E55A4BD1BFFE83B9C80D052B985D182EA0ADB2A3B7313D3FE14C8484B1E052588B9B7D2BBD2DF016199ECD06E1557CD0915B3353BBB64E0EC377FD028370DF92B52C7891428CDC67EB6184B523D1DB246C32F63078490F00EF8D647D148D47954515E2327CFEF98C582664B4C0F6CC41659"
@@ -250,7 +252,10 @@ typedef enum {
     dss_fixed_dh = 4,
     rsa_ephemeral_dh_RESERVED = 5,
     dss_ephemeral_dh_RESERVED = 6,
-    fortezza_dms_RESERVED = 20
+    fortezza_dms_RESERVED = 20,
+    ecdsa_sign = 64,
+    rsa_fixed_ecdh = 65,
+    ecdsa_fixed_ecdh = 66
 } TLSClientCertificateType;
 
 typedef enum {
@@ -1106,8 +1111,136 @@ int __private_tls_sign_rsa(TLSContext *context, unsigned int hash_type, const un
 }
 
 #ifdef TLS_ECDSA_SUPPORTED
+static int __private_tls_is_point(ecc_key *key) {
+    void *prime, *b, *t1, *t2;
+    int  err;
+
+    if ((err = mp_init_multi(&prime, &b, &t1, &t2, NULL)) != CRYPT_OK) {
+        return err;
+    }
+
+    /* load prime and b */
+    if ((err = mp_read_radix(prime, key->dp->prime, 16)) != CRYPT_OK) {
+        goto error;
+    }
+    if ((err = mp_read_radix(b, key->dp->B, 16)) != CRYPT_OK) {
+        goto error;
+    }
+
+    /* compute y^2 */
+    if ((err = mp_sqr(key->pubkey.y, t1)) != CRYPT_OK) {
+        goto error;
+    }
+
+    /* compute x^3 */
+    if ((err = mp_sqr(key->pubkey.x, t2)) != CRYPT_OK) {
+        goto error;
+    }
+    if ((err = mp_mod(t2, prime, t2)) != CRYPT_OK) {
+        goto error;
+    }
+    if ((err = mp_mul(key->pubkey.x, t2, t2)) != CRYPT_OK) {
+        goto error;
+    }
+
+    /* compute y^2 - x^3 */
+    if ((err = mp_sub(t1, t2, t1)) != CRYPT_OK) {
+        goto error;
+    }
+
+    /* compute y^2 - x^3 + 3x */
+    if ((err = mp_add(t1, key->pubkey.x, t1)) != CRYPT_OK) {
+        goto error;
+    }
+    if ((err = mp_add(t1, key->pubkey.x, t1)) != CRYPT_OK) {
+        goto error;
+    }
+    if ((err = mp_add(t1, key->pubkey.x, t1)) != CRYPT_OK) {
+        goto error;
+    }
+    if ((err = mp_mod(t1, prime, t1)) != CRYPT_OK) {
+        goto error;
+    }
+    while (mp_cmp_d(t1, 0) == LTC_MP_LT) {
+        if ((err = mp_add(t1, prime, t1)) != CRYPT_OK) {
+            goto error;
+        }
+    }
+    while (mp_cmp(t1, prime) != LTC_MP_LT) {
+        if ((err = mp_sub(t1, prime, t1)) != CRYPT_OK) {
+            goto error;
+        }
+    }
+
+    /* compare to b */
+    if (mp_cmp(t1, b) != LTC_MP_EQ) {
+        err = CRYPT_INVALID_PACKET;
+    } else {
+        err = CRYPT_OK;
+    }
+
+error:
+    mp_clear_multi(prime, b, t1, t2, NULL);
+    return err;
+}
+
+int __private_tls_ecc_import_key(const unsigned char *private_key, int private_len, const unsigned char *public_key, int public_len, ecc_key *key, const ltc_ecc_set_type *dp) {
+    //return ecc_import_ex(buffer, len, key, dp);
+    unsigned long key_size;
+    unsigned char flags[1];
+    int           err;
+
+    LTC_ARGCHK(key != NULL);
+    LTC_ARGCHK(ltc_mp.name != NULL);
+    key->type = PK_PRIVATE;
+
+    /* init key */
+    if (mp_init_multi(&key->pubkey.x, &key->pubkey.y, &key->pubkey.z, &key->k, NULL) != CRYPT_OK)
+        return CRYPT_MEM;
+
+    if ((private_len) && (!public_key[0])) {
+        public_key++;
+        public_len--;
+    }
+    if ((err = mp_read_unsigned_bin(key->pubkey.x, (unsigned char *)public_key + 1, (public_len - 1) >> 1)) != CRYPT_OK) {
+        mp_clear_multi(key->pubkey.x, key->pubkey.y, key->pubkey.z, key->k, NULL);
+        return err;
+    }
+
+    if ((err = mp_read_unsigned_bin(key->pubkey.y, (unsigned char *)public_key + 1 + ((public_len - 1) >> 1), (public_len - 1) >> 1)) != CRYPT_OK) {
+        mp_clear_multi(key->pubkey.x, key->pubkey.y, key->pubkey.z, key->k, NULL);
+        return err;
+    }
+
+    if ((err = mp_read_unsigned_bin(key->k, (unsigned char *)private_key, private_len)) != CRYPT_OK) {
+        mp_clear_multi(key->pubkey.x, key->pubkey.y, key->pubkey.z, key->k, NULL);
+        return err;
+    }
+
+    key->idx = -1;
+    key->dp  = dp;
+
+    /* set z */
+    if ((err = mp_set(key->pubkey.z, 1)) != CRYPT_OK) {
+        mp_clear_multi(key->pubkey.x, key->pubkey.y, key->pubkey.z, key->k, NULL);
+        return err; 
+    }
+
+    /* is it a point on the curve?  */
+    if ((err = __private_tls_is_point(key)) != CRYPT_OK) {
+        DEBUG_PRINT("KEY IS NOT ON CURVE\n");
+        mp_clear_multi(key->pubkey.x, key->pubkey.y, key->pubkey.z, key->k, NULL);
+        return err; 
+    }
+
+    /* we're good */
+    return CRYPT_OK;
+}
+
 int __private_tls_sign_ecdsa(TLSContext *context, unsigned int hash_type, const unsigned char *message, unsigned int message_len, unsigned char *out, unsigned long *outlen) {
-    if ((!outlen) || (!context) || (!out) || (!outlen) || (!context->private_key) || (!context->private_key->priv) || (!context->private_key->priv_len) || (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]->ec_algorithm)) {
+    if ((!outlen) || (!context) || (!out) || (!outlen) || (!context->private_key) || 
+        (!context->private_key->priv) || (!context->private_key->priv_len) || (!context->private_key->pk) || (!context->private_key->pk_len) ||
+        (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]->ec_algorithm)) {
         DEBUG_PRINT("No private ECDSA key set");
         return TLS_GENERIC_ERROR;
     }
@@ -1159,7 +1292,7 @@ int __private_tls_sign_ecdsa(TLSContext *context, unsigned int hash_type, const 
     dp.order = (char *)curve->order;
 
     // broken ... fix this
-    if (ecc_import_ex(context->private_key->priv, context->private_key->priv_len, &key, &dp)) {
+    if (__private_tls_ecc_import_key(context->private_key->priv, context->private_key->priv_len, context->private_key->pk, context->private_key->pk_len, &key, &dp)) {
         DEBUG_PRINT("Error importing ECC certificate (code: %i)", (int)err);
         return TLS_GENERIC_ERROR;
     }
@@ -1249,6 +1382,7 @@ int __private_tls_sign_ecdsa(TLSContext *context, unsigned int hash_type, const 
         return TLS_GENERIC_ERROR;
     }
     err = ecc_sign_hash(hash, hash_len, out, outlen, NULL, find_prng("sprng"), &key);
+    DEBUG_DUMP_HEX_LABEL("OUT", out, *outlen);
     ecc_free(&key);
     if (err)
         return 0;
@@ -3215,12 +3349,18 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         
         const char *default_dhe_p = context->default_dhe_p;
         const char *default_dhe_g = context->default_dhe_g;
-        
+        int key_size;
         if ((!default_dhe_p) || (!default_dhe_g)) {
             default_dhe_p = TLS_DH_DEFAULT_P;
             default_dhe_g = TLS_DH_DEFAULT_G;
+            key_size = __TLS_DHE_KEY_SIZE / 8;
+        } else {
+            if (default_dhe_p)
+                key_size = strlen(default_dhe_p);
+            else
+                key_size = strlen(default_dhe_g);
         }
-        if (__private_tls_dh_make_key(__TLS_DHE_KEY_SIZE / 8, context->dhe, default_dhe_p, default_dhe_g, 0, 0)) {
+        if (__private_tls_dh_make_key(key_size, context->dhe, default_dhe_p, default_dhe_g, 0, 0)) {
             DEBUG_PRINT("ERROR CREATING DHE KEY\n");
             TLS_FREE(packet);
             TLS_FREE(context->dhe);
@@ -3315,6 +3455,11 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         } else {
             hash_algorithm = sha1;
             tls_packet_uint8(packet, sha1);
+#ifdef TLS_ECDSA_SUPPORTED
+            if (tls_is_ecdsa(context))
+                tls_packet_uint8(packet, ecdsa_sign);
+            else
+#endif
             tls_packet_uint8(packet, rsa_sign);
         }
         
@@ -4018,7 +4163,10 @@ int tls_parse_server_key_exchange(TLSContext *context, const unsigned char *buf,
         __private_tls_dhe_create(context);
         DEBUG_DUMP_HEX_LABEL("DHP", dh_p, dh_p_len);
         DEBUG_DUMP_HEX_LABEL("DHG", dh_g, dh_g_len);
-        if (__private_tls_dh_make_key(__TLS_DHE_KEY_SIZE / 8, context->dhe, (const char *)dh_p, (const char *)dh_g, dh_p_len, dh_g_len)) {
+        int dhe_key_size = dh_p_len;
+        if (dh_g_len > dh_p_len)
+            dhe_key_size = dh_g_len;
+        if (__private_tls_dh_make_key(dhe_key_size, context->dhe, (const char *)dh_p, (const char *)dh_g, dh_p_len, dh_g_len)) {
             DEBUG_PRINT("ERROR CREATING DHE KEY\n");
             TLS_FREE(context->dhe);
             context->dhe = NULL;
