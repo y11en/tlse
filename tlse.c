@@ -23,8 +23,8 @@
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  POSSIBILITY OF SUCH DAMAGE.
  ********************************************************************************/
-#ifndef TLS_LAYER_C
-#define TLS_LAYER_C
+#ifndef TLSE_C
+#define TLSE_C
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -6425,4 +6425,4 @@ int SSL_pending(TLSContext *context) {
 
 #endif // SSL_COMPATIBLE_INTERFACE
 
-#endif // TLS_LAYER_C
+#endif // TLSE_C
