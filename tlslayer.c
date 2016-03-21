@@ -553,6 +553,7 @@ static unsigned int algorithm_id[] = {1, 1, 3, 0};
 static unsigned int sign_id[] = {1, 3, 2, 1, 0};
 static unsigned int priv_id[] = {1, 4, 0};
 static unsigned int priv_der_id[] = {1, 3, 1, 0};
+static unsigned int ecc_priv_id[] = {1, 2, 0};
 
 static unsigned char country_oid[] = {0x55, 0x04, 0x06, 0x00};
 static unsigned char state_oid[] = {0x55, 0x04, 0x08, 0x00};
@@ -1792,6 +1793,10 @@ void tls_certificate_set_copy_date(unsigned char **member, const unsigned char *
 }
 
 void tls_certificate_set_key(TLSCertificate *cert, const unsigned char *val, int len) {
+    if ((!val[0]) && (len % 2)) {
+        val++;
+        len--;
+    }
     tls_certificate_set_copy(&cert->pk, val, len);
     if (cert->pk)
         cert->pk_len = len;
@@ -1804,6 +1809,10 @@ void tls_certificate_set_priv(TLSCertificate *cert, const unsigned char *val, in
 }
 
 void tls_certificate_set_sign_key(TLSCertificate *cert, const unsigned char *val, int len) {
+    if ((!val[0]) && (len % 2)) {
+        val++;
+        len--;
+    }
     tls_certificate_set_copy(&cert->sign_key, val, len);
     if (cert->sign_key)
         cert->sign_len = len;
@@ -5072,11 +5081,10 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
                         if ((cert->ec_algorithm) && (__is_field(fields, pk_id))) {
                             tls_certificate_set_key(cert, &buffer[pos], length);
                         } else {
-                            if ((buffer[pos] == 0x0) && (length > 256)) {
+                            if ((buffer[pos] == 0x00) && (length > 256))
                                 __private_asn1_parse(context, cert, &buffer[pos]+1, length - 1, level + 1, fields, &local_has_key, client_cert, top_oid);
-                                break;
-                            }
-                            __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid);
+                            else
+                                __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid);
 
                             if (top_oid) {
                                 if (__is_oid2(top_oid, TLS_EC_prime256v1_OID, sizeof(oid), sizeof(TLS_EC_prime256v1) - 1)) {
@@ -5091,19 +5099,19 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
                                 if (__is_oid2(top_oid, TLS_EC_secp521r1_OID, sizeof(oid), sizeof(TLS_EC_secp521r1_OID) - 1)) {
                                     cert->ec_algorithm = TLS_EC_secp521r1;
                                 }
-                                if ((cert->ec_algorithm) && (!cert->priv)) {
-                                    cert->priv = (unsigned char *)TLS_MALLOC(length);
-                                    if (cert->priv) {
-                                        memcpy(cert->priv, &buffer[pos], length);
-                                        cert->priv_len = length;
-                                    }
-                                }
+                                if ((cert->ec_algorithm) && (!cert->pk))
+                                    tls_certificate_set_key(cert, &buffer[pos], length);
                             }
                         }
                     break;
                 case 0x04:
-                    DEBUG_PRINT("\n");
-                    __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid);
+                    if ((top_oid) && (__is_field(fields, ecc_priv_id)) && (!cert->priv)) {
+                        DEBUG_PRINT("BINARY STRING(%i): ", length);
+                        DEBUG_DUMP_HEX(&buffer[pos], length);
+                        DEBUG_PRINT("\n");
+                        tls_certificate_set_priv(cert, &buffer[pos], length);
+                    } else
+                        __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid);
                     break;
                 case 0x05:
                     DEBUG_PRINT("NULL\n");
@@ -5234,7 +5242,8 @@ TLSCertificate *asn1_parse(TLSContext *context, const unsigned char *buffer, int
     memset(fields, 0, sizeof(int) * __TLS_ASN1_MAXLEVEL);
     TLSCertificate *cert = tls_create_certificate();
     if (cert) {
-        if (!client_cert) {
+        if (client_cert < 0) {
+            client_cert = 0;
             // private key
             unsigned char top_oid[16];
             memset(top_oid, 0, sizeof(top_oid));
@@ -5292,7 +5301,7 @@ int tls_load_private_key(TLSContext *context, const unsigned char *pem_buffer, i
         unsigned char *data = tls_pem_decode(pem_buffer, pem_size, idx++, &len);
         if ((!data) || (!len))
             break;
-        TLSCertificate *cert = asn1_parse(context, data, len, 0);
+        TLSCertificate *cert = asn1_parse(context, data, len, -1);
         TLS_FREE(data);
         if (cert) {
             if ((cert) && (cert->priv) && (cert->priv_len)) {
@@ -5900,7 +5909,7 @@ void tls_print_certificate(const char *fname) {
             }
             if ((!data) || (!len))
                 return;
-            TLSCertificate *cert = asn1_parse(NULL, data, len, 0);
+            TLSCertificate *cert = asn1_parse(NULL, data, len, -1);
             if (data != buf)
                 TLS_FREE(data);
             if (cert) {
