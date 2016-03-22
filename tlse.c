@@ -531,6 +531,12 @@ typedef struct {
 typedef int (*tls_validation_function)(TLSContext *context, TLSCertificate **certificate_chain, int len);
 
 #ifdef SSL_COMPATIBLE_INTERFACE
+#ifdef _WIN32
+    #include <winsock2.h>
+#else
+    #include <sys/socket.h>
+#endif
+
 #define SSL_SERVER_RSA_CERT 1
 #define SSL_SERVER_RSA_KEY  2
 #define SSL_CTX             TLSContext
@@ -1403,10 +1409,11 @@ void __private_tls_sleep(unsigned int microseconds) {
 #ifdef _WIN32
     Sleep(microseconds/1000);
 #else
-    const struct timespec ts = {
-        .tv_sec = (unsigned int) (microseconds / 1000000),
-        .tv_nsec = (unsigned int) (microseconds % 1000000) * 1000ul
-    };
+    struct timespec ts;
+
+    ts.tv_sec = (unsigned int) (microseconds / 1000000);
+    ts.tv_nsec = (unsigned int) (microseconds % 1000000) * 1000ul;
+
     nanosleep(&ts, NULL);
 #endif
 }
