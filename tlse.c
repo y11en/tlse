@@ -6079,8 +6079,8 @@ int tls_default_verify(TLSContext *context, TLSCertificate **certificate_chain, 
     if (err)
         return err;
 
-    // check certificate chain
-    if ((context->sni) && (len > 0)) {
+    // check certificate subject
+    if ((!context->is_server) && (context->sni) && (len > 0)) {
         err = tls_certificate_valid_subject(certificate_chain[0], context->sni);
         if (err)
             return err;
