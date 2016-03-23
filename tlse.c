@@ -196,7 +196,7 @@
 #define __TLS_MAX_HASH_SIZE __TLS_MAX_SHA_SIZE
 #define __TLS_MAX_RSA_KEY   2048    // 16kbits
 
-#define __TLS_MAX_TLS_APP_SIZE      65000
+#define __TLS_MAX_TLS_APP_SIZE      0x4000
 // max 1 second sleep
 #define __TLS_MAX_ERROR_SLEEP_uS    1000000
 
