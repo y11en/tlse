@@ -5512,7 +5512,12 @@ int tls_load_private_key(TLSContext *context, const unsigned char *pem_buffer, i
         if ((!data) || (!len))
             break;
         TLSCertificate *cert = asn1_parse(context, data, len, -1);
-        TLS_FREE(data);
+        if (!cert->der_len) {
+            TLS_FREE(cert->der_bytes);
+            cert->der_bytes = data;
+            cert->der_len = len;
+        } else
+            TLS_FREE(data);
         if (cert) {
             if ((cert) && (cert->priv) && (cert->priv_len)) {
                 DEBUG_PRINT("Loaded private key\n");
