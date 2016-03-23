@@ -3598,7 +3598,7 @@ TLSPacket *tls_build_hello(TLSContext *context) {
 
                 int extension_len = 0;
 #ifdef TLS_CLIENT_ECDHE
-                extension_len += 14;
+                extension_len += 12;
 #endif
                 if (sni_len)
                     extension_len += sni_len + 9;
@@ -3622,11 +3622,10 @@ TLSPacket *tls_build_hello(TLSContext *context) {
                 // supported groups
                 tls_packet_uint16(packet, 0x0A);
                 // 4 curves x 2 bytes
-                tls_packet_uint16(packet, 10);
                 tls_packet_uint16(packet, 8);
+                tls_packet_uint16(packet, 6);
                 tls_packet_uint16(packet, secp256r1.iana);
                 tls_packet_uint16(packet, secp384r1.iana);
-                tls_packet_uint16(packet, secp521r1.iana);
                 tls_packet_uint16(packet, secp224r1.iana);
 #endif
             }
@@ -3870,10 +3869,11 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
                                     context->curve = &secp384r1;
                                     selected = 1;
                                     break;
-                                case 25:
-                                    context->curve = &secp521r1;
-                                    selected = 1;
-                                    break;
+                                // do not use it anymore
+                                // case 25:
+                                //    context->curve = &secp521r1;
+                                //    selected = 1;
+                                //    break;
                             }
                             if (selected) {
                                 DEBUG_PRINT("SELECTED CURVE %s\n", context->curve->name);
