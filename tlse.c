@@ -1844,7 +1844,7 @@ int tls_certificate_valid_subject(TLSCertificate *cert, const char *subject) {
     if (!strcmp((const char *)cert->subject, subject))
         return 0;
 
-    char *wildcard = strchr((const char *)cert->subject, '*');
+    const char *wildcard = strchr((const char *)cert->subject, '*');
     if (wildcard) {
         if (!wildcard[0]) {
             // subject is [*]
@@ -1854,7 +1854,7 @@ int tls_certificate_valid_subject(TLSCertificate *cert, const char *subject) {
             return bad_certificate;
         }
         wildcard++;
-        char *match = strstr(subject, wildcard);
+        const char *match = strstr(subject, wildcard);
         if ((!match) && (wildcard[0] == '.')) {
             // check *.domain.com agains domain.com
             wildcard++;
