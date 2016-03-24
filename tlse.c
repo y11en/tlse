@@ -3581,7 +3581,7 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
                 if (context->version >= TLS_V12)
                     hash_algorithm = sha512;
                 tls_packet_uint8(packet, hash_algorithm);
-                tls_packet_uint8(packet, ecdsa_sign);
+                tls_packet_uint8(packet, ecdsa);
             } else
 #endif
             {
