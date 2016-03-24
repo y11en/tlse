@@ -3571,8 +3571,11 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
         if (context->version < TLS_V12) {
             hash_algorithm = __md5_sha1;
         } else {
-            hash_algorithm = sha1;
-            tls_packet_uint8(packet, sha1);
+            if (context->version >= TLS_V12)
+                hash_algorithm = sha256;
+            else
+                hash_algorithm = sha1;
+            tls_packet_uint8(packet, hash_algorithm);
 #ifdef TLS_ECDSA_SUPPORTED
             if (tls_is_ecdsa(context))
                 tls_packet_uint8(packet, ecdsa_sign);
