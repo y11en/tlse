@@ -3575,13 +3575,19 @@ TLSPacket *tls_build_server_key_exchange(TLSContext *context, int method) {
                 hash_algorithm = sha256;
             else
                 hash_algorithm = sha1;
-            tls_packet_uint8(packet, hash_algorithm);
+
 #ifdef TLS_ECDSA_SUPPORTED
-            if (tls_is_ecdsa(context))
+            if (tls_is_ecdsa(context)) {
+                if (context->version >= TLS_V12)
+                    hash_algorithm = sha512;
+                tls_packet_uint8(packet, hash_algorithm);
                 tls_packet_uint8(packet, ecdsa_sign);
-            else
+            } else
 #endif
-            tls_packet_uint8(packet, rsa_sign);
+            {
+                tls_packet_uint8(packet, hash_algorithm);
+                tls_packet_uint8(packet, rsa_sign);
+            }
         }
         
         memcpy(message, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
