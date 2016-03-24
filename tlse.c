@@ -1288,7 +1288,7 @@ int __private_tls_ecc_import_key(const unsigned char *private_key, int private_l
     if (mp_init_multi(&key->pubkey.x, &key->pubkey.y, &key->pubkey.z, &key->k, NULL) != CRYPT_OK)
         return CRYPT_MEM;
 
-    if ((private_len) && (!public_key[0])) {
+    if ((public_len) && (!public_key[0])) {
         public_key++;
         public_len--;
     }
