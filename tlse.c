@@ -2710,7 +2710,11 @@ int __private_tls_change_hash_type(TLSContext *context) {
     TLSHash *hash = __private_tls_ensure_hash(context);
     if ((hash) && (hash->created) && (context->cached_handshake) && (context->cached_handshake_len)) {
         __private_tls_destroy_hash(context);
-        return __private_tls_update_hash(context, context->cached_handshake, context->cached_handshake_len);
+        int res = __private_tls_update_hash(context, context->cached_handshake, context->cached_handshake_len);
+        TLS_FREE(context->cached_handshake);
+        context->cached_handshake = NULL;
+        context->cached_handshake_len = 0;
+        return res;
     }
     return 0;
 }
