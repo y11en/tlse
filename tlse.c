@@ -1337,7 +1337,7 @@ int __private_tls_sign_ecdsa(TLSContext *context, unsigned int hash_type, const 
 
     const ECCCurveParameters *curve = NULL;
 
-    switch (context->certificates[0]->ec_algorithm) {
+    switch (context->private_key->ec_algorithm) {
         case 19:
             curve = &secp192r1;
             break;
