@@ -888,7 +888,7 @@ int __private_rsa_verify_hash_md5sha1(const unsigned char *sig, unsigned long si
     int           err;
     unsigned char *tmpbuf = NULL;
 
-    if ((hash == NULL) || (sig == NULL) || (stat == NULL) || (key == NULL))
+    if ((hash == NULL) || (sig == NULL) || (stat == NULL) || (key == NULL) || (!siglen) || (!hashlen))
         return TLS_GENERIC_ERROR;
 
     *stat = 0;
