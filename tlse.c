@@ -2662,9 +2662,19 @@ int __private_tls_update_hash(TLSContext *context, const unsigned char *in, unsi
         return 0;
     TLSHash *hash = __private_tls_ensure_hash(context);
     if (context->version >= TLS_V12) {
-        if (!hash->created)
+        if (!hash->created) {
             __private_tls_create_hash(context);
-        
+#ifdef TLS_LEGACY_SUPPORT
+            // cache first hello in case of protocol downgrade
+            if ((!context->is_server) && (!context->cached_handshake) && (!context->request_client_certificate) && (len)) {
+                context->cached_handshake = (unsigned char *)TLS_MALLOC(len);
+                if (context->cached_handshake) {
+                    memcpy(context->cached_handshake, in, len);
+                    context->cached_handshake_len = len;
+                }
+            }
+#endif
+        }
         int hash_size = __private_tls_mac_length(context);
         if (hash_size == __TLS_SHA384_MAC_SIZE) {
             sha384_process(&hash->hash, in, len);
@@ -2692,6 +2702,19 @@ int __private_tls_update_hash(TLSContext *context, const unsigned char *in, unsi
     }
     return 0;
 }
+
+#ifdef TLS_LEGACY_SUPPORT
+int __private_tls_change_hash_type(TLSContext *context) {
+    if (!context)
+        return 0;
+    TLSHash *hash = __private_tls_ensure_hash(context);
+    if ((hash) && (hash->created) && (context->cached_handshake) && (context->cached_handshake_len)) {
+        __private_tls_destroy_hash(context);
+        return __private_tls_update_hash(context, context->cached_handshake, context->cached_handshake_len);
+    }
+    return 0;
+}
+#endif
 
 int __private_tls_done_hash(TLSContext *context, unsigned char *hout) {
     if (!context)
@@ -3854,6 +3877,8 @@ int tls_parse_hello(TLSContext *context, const unsigned char *buf, int buf_len, 
     if (context->version > version) {
         context->version = version;
         downgraded = 1;
+        if (!context->is_server)
+            __private_tls_change_hash_type(context);
     }
 #endif
 #endif
