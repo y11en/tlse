@@ -1660,11 +1660,7 @@ int __private_tls_is_aead(TLSContext *context) {
         case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
-        case TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA:
-        case TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
-        case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
-        case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384:
         case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
             return 1;
     }
@@ -3173,6 +3169,7 @@ int tls_cipher_is_fs(TLSContext *context, unsigned short cipher) {
     }
     return 0;
 }
+
 int tls_choose_cipher(TLSContext *context, const unsigned char *buf, int buf_len, int *scsv_set) {
     int i;
     if (scsv_set)
