@@ -32,7 +32,7 @@ For now it supports TLS 1.2, TLS 1.1 + 1.0 (when TLS_LEGACY_SUPPORT is defined /
 
 It has a low level interface, efficient for non-blocking, asynchronous sockets, and a blocking, libssl-style interface.
 
-It implements all what is needed for the TLS protocol version 1.2 and a pem/der parser. From tomcrypt it uses RSA, ECDSA and AES(CBC) encryption/decryption, SHA1, SHA256, SHA384, SHA512 and HMAC functions.
+It implements all what is needed for the TLS protocol version 1.2 and a pem/der parser. From tomcrypt it uses RSA, ECDSA and AES(GCM and CBC) encryption/decryption, SHA1, SHA256, SHA384, SHA512 and HMAC functions.
 
 Now it supports client certificate. To request a client certificate, call ``tls_request_client_certificate(TLSContext *)`` following ``tls_accept(TLSContext *)``.
 
