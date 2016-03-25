@@ -5444,16 +5444,16 @@ int __private_asn1_parse(TLSContext *context, TLSCertificate *cert, const unsign
 
                             if (top_oid) {
                                 if (__is_oid2(top_oid, TLS_EC_prime256v1_OID, sizeof(oid), sizeof(TLS_EC_prime256v1) - 1)) {
-                                    cert->ec_algorithm = TLS_EC_secp256r1;
+                                    cert->ec_algorithm = secp256r1.iana;
                                 } else
                                 if (__is_oid2(top_oid, TLS_EC_secp224r1_OID, sizeof(oid), sizeof(TLS_EC_secp224r1_OID) - 1)) {
-                                    cert->ec_algorithm = TLS_EC_secp224r1;
+                                    cert->ec_algorithm = secp224r1.iana;
                                 } else
                                 if (__is_oid2(top_oid, TLS_EC_secp384r1_OID, sizeof(oid), sizeof(TLS_EC_secp384r1_OID) - 1)) {
-                                    cert->ec_algorithm = TLS_EC_secp384r1;
+                                    cert->ec_algorithm = secp384r1.iana;
                                 } else
                                 if (__is_oid2(top_oid, TLS_EC_secp521r1_OID, sizeof(oid), sizeof(TLS_EC_secp521r1_OID) - 1)) {
-                                    cert->ec_algorithm = TLS_EC_secp521r1;
+                                    cert->ec_algorithm = secp521r1.iana;
                                 }
                                 if ((cert->ec_algorithm) && (!cert->pk))
                                     tls_certificate_set_key(cert, &buffer[pos], length);
