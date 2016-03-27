@@ -378,7 +378,7 @@ typedef struct {
     ltc_ecc_set_type dp;
 } ECCCurveParameters;
 
-static const ECCCurveParameters secp192r1 = {
+static ECCCurveParameters secp192r1 = {
     24,
     19,
     "secp192r1",
@@ -391,7 +391,7 @@ static const ECCCurveParameters secp192r1 = {
 };
 
 
-static const ECCCurveParameters secp224r1 = {
+static ECCCurveParameters secp224r1 = {
     28,
     21,
     "secp224r1",
@@ -403,7 +403,7 @@ static const ECCCurveParameters secp224r1 = {
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFF16A2E0B8F03E13DD29455C5C2A3D"  // order (n)
 };
 
-static const ECCCurveParameters secp224k1 = {
+static ECCCurveParameters secp224k1 = {
     28,
     20,
     "secp224k1",
@@ -415,7 +415,7 @@ static const ECCCurveParameters secp224k1 = {
     "0000000000000000000000000001DCE8D2EC6184CAF0A971769FB1F7"  // order (n)
 };
 
-static const ECCCurveParameters secp256r1 = {
+static ECCCurveParameters secp256r1 = {
     32,
     23,
     "secp256r1",
@@ -427,7 +427,7 @@ static const ECCCurveParameters secp256r1 = {
     "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551"  // order (n)
 };
 
-static const ECCCurveParameters secp256k1 = {
+static ECCCurveParameters secp256k1 = {
     32,
     22,
     "secp256k1",
@@ -439,7 +439,7 @@ static const ECCCurveParameters secp256k1 = {
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"  // order (n)
 };
 
-static const ECCCurveParameters secp384r1 = {
+static ECCCurveParameters secp384r1 = {
     48,
     24,
     "secp384r1",
@@ -451,7 +451,7 @@ static const ECCCurveParameters secp384r1 = {
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973"  // order (n)
 };
 
-static const ECCCurveParameters secp521r1 = {
+static ECCCurveParameters secp521r1 = {
     66,
     25,
     "secp521r1",
@@ -463,9 +463,10 @@ static const ECCCurveParameters secp521r1 = {
     "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
 };
 
-static const ECCCurveParameters *default_curve = &secp256r1;
+static ECCCurveParameters *default_curve = &secp256r1;
 
-void init_curve(const ECCCurveParameters *curve, ltc_ecc_set_type *dp) {
+void init_curve(ECCCurveParameters *curve) {
+    ltc_ecc_set_type *dp = &curve->dp;
     memset(dp, 0, sizeof(ltc_ecc_set_type));
     dp->size = curve->size;
     dp->name = (char *)curve->name;
@@ -477,13 +478,13 @@ void init_curve(const ECCCurveParameters *curve, ltc_ecc_set_type *dp) {
 }
 
 void init_curves() {
-    init_curve(&secp192r1, (ltc_ecc_set_type *)&secp192r1.dp);
-    init_curve(&secp224r1, (ltc_ecc_set_type *)&secp224r1.dp);
-    init_curve(&secp224k1, (ltc_ecc_set_type *)&secp224k1.dp);
-    init_curve(&secp256r1, (ltc_ecc_set_type *)&secp256r1.dp);
-    init_curve(&secp256k1, (ltc_ecc_set_type *)&secp256k1.dp);
-    init_curve(&secp384r1, (ltc_ecc_set_type *)&secp384r1.dp);
-    init_curve(&secp521r1, (ltc_ecc_set_type *)&secp521r1.dp);
+    init_curve(&secp192r1);
+    init_curve(&secp224r1);
+    init_curve(&secp224k1);
+    init_curve(&secp256r1);
+    init_curve(&secp256k1);
+    init_curve(&secp384r1);
+    init_curve(&secp521r1);
 }
 #endif
 
