@@ -466,15 +466,13 @@ static ECCCurveParameters secp521r1 = {
 static ECCCurveParameters *default_curve = &secp256r1;
 
 void init_curve(ECCCurveParameters *curve) {
-    ltc_ecc_set_type *dp = &curve->dp;
-    memset(dp, 0, sizeof(ltc_ecc_set_type));
-    dp->size = curve->size;
-    dp->name = (char *)curve->name;
-    dp->B = (char *)curve->B;
-    dp->prime = (char *)curve->P;
-    dp->Gx = (char *)curve->Gx;
-    dp->Gy = (char *)curve->Gy;
-    dp->order = (char *)curve->order;
+    curve->dp.size = curve->size;
+    curve->dp.name = (char *)curve->name;
+    curve->dp.B = (char *)curve->B;
+    curve->dp.prime = (char *)curve->P;
+    curve->dp.Gx = (char *)curve->Gx;
+    curve->dp.Gy = (char *)curve->Gy;
+    curve->dp.order = (char *)curve->order;
 }
 
 void init_curves() {
