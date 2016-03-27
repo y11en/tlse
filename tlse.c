@@ -1311,11 +1311,11 @@ int __private_tls_ecc_import_key(const unsigned char *private_key, int private_l
     unsigned char flags[1];
     int           err;
     
-    LTC_ARGCHK(key != NULL);
-    LTC_ARGCHK(ltc_mp.name != NULL);
+    if ((!key) || (!ltc_mp.name))
+        return CRYPT_MEM;
+        
     key->type = PK_PRIVATE;
     
-    /* init key */
     if (mp_init_multi(&key->pubkey.x, &key->pubkey.y, &key->pubkey.z, &key->k, NULL) != CRYPT_OK)
         return CRYPT_MEM;
     
