@@ -3120,6 +3120,71 @@ void tls_destroy_context(TLSContext *context) {
     TLS_FREE(context);
 }
 
+#ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
+void __private_tls_reset_context(TLSContext *context) {
+    unsigned int i;
+    if (!context)
+        return;
+    if (!context->is_child) {
+        if (context->certificates) {
+            for (i = 0; i < context->certificates_count; i++)
+                tls_destroy_certificate(context->certificates[i]);
+        }
+        context->certificates = NULL;
+        if (context->private_key) {
+            tls_destroy_certificate(context->private_key);
+            context->private_key = NULL;
+        }
+#ifdef TLS_ECDSA_SUPPORTED
+        if (context->ec_private_key) {
+            tls_destroy_certificate(context->ec_private_key);
+            context->ec_private_key = NULL;
+        }
+#endif
+        TLS_FREE(context->certificates);
+        context->certificates = NULL;
+#ifdef TLS_FORWARD_SECRECY
+        TLS_FREE(context->default_dhe_p);
+        TLS_FREE(context->default_dhe_g);
+        context->default_dhe_p = NULL;
+        context->default_dhe_g = NULL;
+#endif
+    }
+    if (context->client_certificates) {
+        for (i = 0; i < context->client_certificates_count; i++)
+            tls_destroy_certificate(context->client_certificates[i]);
+        TLS_FREE(context->client_certificates);
+    }
+    context->client_certificates = NULL;
+    TLS_FREE(context->master_key);
+    context->master_key = NULL;
+    TLS_FREE(context->premaster_key);
+    context->premaster_key = NULL;
+    if (context->crypto.created)
+        __private_tls_crypto_done(context);
+    __private_tls_done_hash(context, NULL);
+    __private_tls_destroy_hash(context);
+    TLS_FREE(context->application_buffer);
+    context->application_buffer = NULL;
+    // zero out the keys before free
+    if ((context->exportable_keys) && (context->exportable_size))
+        memset(context->exportable_keys, 0, context->exportable_size);
+    TLS_FREE(context->exportable_keys);
+    context->exportable_keys =  NULL;
+    TLS_FREE(context->sni);
+    context->sni = NULL;
+    TLS_FREE(context->dtls_cookie);
+    context->dtls_cookie = NULL;
+    TLS_FREE(context->cached_handshake);
+    context->cached_handshake = NULL;
+    context->connection_status = 0;
+#ifdef TLS_FORWARD_SECRECY
+    __private_tls_dhe_free(context);
+    __private_tls_ecc_dhe_free(context);
+#endif
+}
+#endif
+
 int tls_cipher_supported(TLSContext *context, unsigned short cipher) {
     if (!context)
         return 0;
@@ -4655,10 +4720,16 @@ int tls_parse_payload(TLSContext *context, const unsigned char *buf, int buf_len
                 if (context->is_server)
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 else {
-                    if (context->connection_status != 0xFF) {
+                    if (context->connection_status == 0xFF) {
                         // renegotiation
 #ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
-                        // to do
+                        if (context->critical_error)
+                            payload_res = TLS_UNEXPECTED_MESSAGE;
+                        else {
+                            __private_tls_reset_context(context);
+                            __private_tls_write_packet(tls_build_hello(context));
+                            return 1;
+                        }
 #else
                         payload_res = TLS_NO_RENEGOTIATION;
 #endif
