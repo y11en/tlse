@@ -40,7 +40,11 @@
 #include <unistd.h>
 #endif
 
+#ifdef TLS_AMALGAMATION
+#include "libtomcrypt.c"
+#else
 #include <tomcrypt.h>
+#endif
 
 // #define DEBUG
 
