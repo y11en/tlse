@@ -5550,7 +5550,11 @@ int mp_exptmod(mp_int *G, mp_int *X, mp_int *P, mp_int *Y) {
  * Uses Montgomery or Diminished Radix reduction [whichever appropriate]
  */
 
-#define TAB_SIZE    32
+ #ifdef MP_LOW_MEM
+  #define TAB_SIZE    32
+ #else
+  #define TAB_SIZE    256
+ #endif
 
 int mp_exptmod_fast(mp_int *G, mp_int *X, mp_int *P, mp_int *Y, int redmode) {
     mp_int   M[TAB_SIZE], res;
