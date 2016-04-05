@@ -16,7 +16,7 @@ void error(char *msg) {
     exit(0);
 }
 
-int send_pending(int client_sock, TLSContext *context) {
+int send_pending(int client_sock, struct TLSContext *context) {
     unsigned int out_buffer_len = 0;
     const unsigned char *out_buffer = tls_get_write_buffer(context, &out_buffer_len);
     unsigned int out_buffer_index = 0;
@@ -34,11 +34,11 @@ int send_pending(int client_sock, TLSContext *context) {
     return send_res;
 }
 
-int validate_certificate(TLSContext *context, TLSCertificate **certificate_chain, int len) {
+int validate_certificate(struct TLSContext *context, struct TLSCertificate **certificate_chain, int len) {
     int i;
     if (certificate_chain) {
         for (i = 0; i < len; i++) {
-            TLSCertificate *certificate = certificate_chain[i];
+            struct TLSCertificate *certificate = certificate_chain[i];
             // check certificate ...
         }
     }
@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
     if (connect(sockfd,(struct sockaddr *)&serv_addr,sizeof(serv_addr)) < 0) 
         error("ERROR connecting");
 
-    TLSContext *context = tls_create_context(0, TLS_V12);
+    struct TLSContext *context = tls_create_context(0, TLS_V12);
     tls_client_connect(context);
     send_pending(sockfd, context);
     unsigned char client_message[0xFFFF];
