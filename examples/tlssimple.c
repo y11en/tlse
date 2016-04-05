@@ -17,12 +17,12 @@
 // ================================================================================================= //
 
 // optional callback function for peer certificate verify
-int verify(TLSContext *context, TLSCertificate **certificate_chain, int len) {
+int verify(struct TLSContext *context, struct TLSCertificate **certificate_chain, int len) {
     int i;
     int err;
     if (certificate_chain) {
         for (i = 0; i < len; i++) {
-            TLSCertificate *certificate = certificate_chain[i];
+            struct TLSCertificate *certificate = certificate_chain[i];
             // check validity date
             err = tls_certificate_is_valid(certificate);
             if (err)
