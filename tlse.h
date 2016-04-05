@@ -130,6 +130,7 @@ struct TLSCertificate;
 struct TLSContext;
 struct ECCCurveParameters;
 typedef struct TLSContext TLS;
+typedef struct TLSCertificate Certificate;
 
 typedef int (*tls_validation_function)(struct TLSContext *context, struct TLSCertificate **certificate_chain, int len);
 
