@@ -27,7 +27,7 @@ int read_from_file(const char *fname, void *buf, int max_len) {
     return 0;
 }
 
-void load_keys(TLSContext *context, char *fname, char *priv_fname) {
+void load_keys(struct TLSContext *context, char *fname, char *priv_fname) {
     unsigned char buf[0xFFFF];
     unsigned char buf2[0xFFFF];
     int size = read_from_file(fname, buf, 0xFFFF);
@@ -41,7 +41,7 @@ void load_keys(TLSContext *context, char *fname, char *priv_fname) {
     }
 }
 
-int send_pending(int client_sock, TLSContext *context) {
+int send_pending(int client_sock, struct TLSContext *context) {
     unsigned int out_buffer_len = 0;
     const unsigned char *out_buffer = tls_get_write_buffer(context, &out_buffer_len);
     unsigned int out_buffer_index = 0;
@@ -60,9 +60,9 @@ int send_pending(int client_sock, TLSContext *context) {
 }
 
 // verify signature
-int verify_signature(TLSContext *context, TLSCertificate **certificate_chain, int len) {
+int verify_signature(struct TLSContext *context, struct TLSCertificate **certificate_chain, int len) {
     if (len) {
-        TLSCertificate *cert = certificate_chain[0];
+        struct TLSCertificate *cert = certificate_chain[0];
         if (cert) {
             snprintf(identity_str, sizeof(identity_str), "%s, %s(%s) (issued by: %s)", cert->subject, cert->entity, cert->location, cert->issuer_entity);
             fprintf(stderr, "Verified: %s\n", identity_str);
@@ -113,7 +113,7 @@ int main(int argc , char *argv[]) {
 
     unsigned int size;
 
-    TLSContext *server_context = tls_create_context(1, TLS_V12);
+    struct TLSContext *server_context = tls_create_context(1, TLS_V12);
     // load keys
     load_keys(server_context, "testcert/fullchain.pem", "testcert/privkey.pem");
     
@@ -127,7 +127,7 @@ int main(int argc , char *argv[]) {
             perror("accept failed");
             return 1;
         }
-        TLSContext *context = tls_accept(server_context);
+        struct TLSContext *context = tls_accept(server_context);
 
         // uncomment next line to request client certificate
         tls_request_client_certificate(context);
@@ -166,7 +166,7 @@ int main(int argc , char *argv[]) {
                             snprintf(sni, 0xFF, "%s", context->sni);
     /* COOL STUFF => */ int size = tls_export_context(context, export_buffer, sizeof(export_buffer), 1);
                         if (size > 0) {
-    /* COOLER STUFF => */   TLSContext *imported_context = tls_import_context(export_buffer, size);
+    /* COOLER STUFF => */   struct TLSContext *imported_context = tls_import_context(export_buffer, size);
     // This is cool because a context can be sent to an existing process.
     // It will work both with fork and with already existing worker process.
                             fprintf(stderr, "Imported context (size: %i): %x\n", size, imported_context);
