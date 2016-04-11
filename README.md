@@ -15,6 +15,16 @@ Simple TLS server:
 
 The entire library is a single c file that you just include in your source.
 
+The library may also use the libtomcrypt.c amalgamation. In this case, the client may be compiled:
+
+`$ gcc tlshello.c -o tlshello -DTLS_AMALGAMATION`
+
+and the server:
+
+`$ gcc tlsserverhello.c -o tlsserverhello -DTLS_AMALGAMATION`
+
+tlse.h is optional (is safe to just include tlse.c). Alternatively, you may include tlse.h and add tlse.c to your makefile (useful when linking agains C++).
+
 Usage
 ----------
 
