@@ -23,7 +23,7 @@ and the server:
 
 `$ gcc tlsserverhello.c -o tlsserverhello -DTLS_AMALGAMATION`
 
-tlse.h is optional (is safe to just include tlse.c). Alternatively, you may include tlse.h and add tlse.c to your makefile (useful when linking agains C++).
+tlse.h is optional (is safe to just include tlse.c). Alternatively, you may include tlse.h and add tlse.c to your makefile (useful when linking against C++).
 
 Usage
 ----------
