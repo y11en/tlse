@@ -3908,12 +3908,13 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     
     unsigned char session_len = buf[res++];
     CHECK_SIZE(session_len, buf_len - res, TLS_NEED_MORE_DATA)
-    if ((session_len) && (session_len < __TLS_MAX_SESSION_ID)) {
+    if ((session_len) && (session_len <= __TLS_MAX_SESSION_ID)) {
         memcpy(context->session, &buf[res], session_len);
-        res += session_len;
         context->session_size = session_len;
     } else
         context->session_size = 0;
+
+    res += session_len;
     CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
     if (context->is_server) {
         unsigned short cipher_len = ntohs(*(unsigned short *)&buf[res]);
