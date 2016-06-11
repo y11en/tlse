@@ -1970,10 +1970,11 @@ int __private_tls_is_aead(struct TLSContext *context) {
         case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+            return 1;
         case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
         case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
         case TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
-            return 1;
+            return 2;
     }
     return 0;
 }
@@ -2660,21 +2661,37 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
             cbc_done(&context->crypto.aes_remote);
             cbc_done(&context->crypto.aes_local);
         } else {
+#ifdef TLS_WITH_CHACHA20_POLY1305
+            if (context->crypto.created == 2) {
+#endif
             unsigned char dummy_buffer[32];
             unsigned long tag_len = 0;
             gcm_done(&context->crypto.aes_gcm_remote, dummy_buffer, &tag_len);
             gcm_done(&context->crypto.aes_gcm_local, dummy_buffer, &tag_len);
+#ifdef TLS_WITH_CHACHA20_POLY1305
+            }
+#endif
         }
         context->crypto.created = 0;
     }
     init_dependencies();
+    int is_aead = __private_tls_is_aead(context);
     int cipherID = find_cipher("aes");
     DEBUG_PRINT("Using cipher ID: %x\n", (int)context->cipher);
-    if (__private_tls_is_aead(context)) {
+#ifdef TLS_WITH_CHACHA20_POLY1305
+    if (is_aead == 2) {
+        chacha_keysetup(&context->crypto.chacha_local, localkey, key_length * 8);
+        chacha_ivsetup(&context->crypto.chacha_local, localiv, NULL);
+
+        chacha_keysetup(&context->crypto.chacha_remote, remotekey, key_length * 8);
+        chacha_ivsetup(&context->crypto.chacha_local, remoteiv, NULL);
+
+        context->crypto.created = 3;
+    } else
+#endif
+    if (is_aead) {
         int res1 = gcm_init(&context->crypto.aes_gcm_local, cipherID, localkey, key_length);
         int res2 = gcm_init(&context->crypto.aes_gcm_remote, cipherID, remotekey, key_length);
-        //gcm_add_iv(&context->crypto.aes_gcm_local, localiv, iv_length);
-        //gcm_add_iv(&context->crypto.aes_gcm_remote, remoteiv, iv_length);
         
         if ((res1) || (res2))
             return TLS_GENERIC_ERROR;
@@ -2693,7 +2710,7 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
 int __private_tls_crypto_encrypt(struct TLSContext *context, unsigned char *buf, unsigned char *ct, unsigned int len) {
     if (context->crypto.created == 1)
         return cbc_encrypt(buf, ct, len, &context->crypto.aes_local);
-    
+
     memset(ct, 0, len);
     return TLS_GENERIC_ERROR;
 }
@@ -2850,6 +2867,11 @@ void tls_packet_update(struct TLSPacket *packet) {
                             // invalidate packet
                             memset(packet->buf, 0, packet->len);
                         }
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                    } else
+                    if (packet->context->crypto.created == 3) {
+                        // to do
+#endif
                     } else {
                         // invalidate packet (never reached)
                         memset(packet->buf, 0, packet->len);
@@ -5428,6 +5450,11 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
             }
             ptr = pt;
             length = pt_length;
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        } else
+        if (context->crypto.created == 3) {
+            // to do
+#endif
         } else {
             int err = __private_tls_crypto_decrypt(context, buf + header_size, pt, length);
             if (err) {
@@ -6491,6 +6518,14 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
         tls_packet_uint8(packet, __TLS_AES_GCM_IV_LENGTH);
         tls_packet_append(packet, context->crypto.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
         tls_packet_append(packet, context->crypto.remote_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+#ifdef TLS_WITH_CHACHA20_POLY1305
+    } else
+    if (packet->context->crypto.created == 3) {
+        // ChaCha20
+        tls_packet_uint8(packet, CHACHA_NONCELEN);
+        tls_packet_append(packet, context->crypto.local_nonce, CHACHA_NONCELEN);
+        tls_packet_append(packet, context->crypto.remote_nonce, CHACHA_NONCELEN);
+#endif
     } else {
         unsigned char iv[__TLS_AES_IV_LENGTH];
         unsigned long len = __TLS_AES_IV_LENGTH;
@@ -6510,6 +6545,18 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
     
     if (context->crypto.created == 2) {
         tls_packet_uint8(packet, 0);
+#ifdef TLS_WITH_CHACHA20_POLY1305
+    } else
+    if (packet->context->crypto.created == 3) {
+        // ChaCha20
+        unsigned int i;
+        for (i = 0; i < 16; i++)
+            tls_packet_uint32(packet, context->crypto.chacha_local.input[i]);
+        for (i = 0; i < 16; i++)
+            tls_packet_uint32(packet, context->crypto.chacha_remote.input[i]);
+        // tls_packet_append(packet, context->crypto.chacha_local.ks, CHACHA_BLOCKLEN);
+        // tls_packet_append(packet, context->crypto.chacha_remote.ks, CHACHA_BLOCKLEN);
+#endif
     } else {
         unsigned char mac_length = (unsigned char)__private_tls_mac_length(context);
         tls_packet_uint8(packet, mac_length);
@@ -6599,7 +6646,17 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
         memcpy(temp, &buffer[buf_pos], key_lengths);
         buf_pos += key_lengths;
         
-        if (__private_tls_is_aead(context)) {
+        int is_aead = __private_tls_is_aead(context);
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        if (is_aead == 2) {
+            // ChaCha20
+            if (iv_len > CHACHA_NONCELEN)
+                iv_len = CHACHA_NONCELEN;
+            memcpy(context->crypto.local_nonce, local_iv, iv_len);
+            memcpy(context->crypto.remote_nonce, remote_iv, iv_len);
+        } else
+#endif
+        if (is_aead) {
             if (iv_len > __TLS_AES_GCM_IV_LENGTH)
                 iv_len = __TLS_AES_GCM_IV_LENGTH;
             memcpy(context->crypto.local_aead_iv, local_iv, iv_len);
@@ -6635,7 +6692,26 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
             TLS_IMPORT_CHECK_SIZE(buf_pos, mac_length, buf_len)
             memcpy(context->crypto.remote_mac, &buffer[buf_pos], mac_length);
             buf_pos += mac_length;
+        } else
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        if (is_aead == 2) {
+            // ChaCha20
+            unsigned int i;
+            TLS_IMPORT_CHECK_SIZE(buf_pos, 128 /*+ CHACHA_BLOCKLEN * 2*/, buf_len)
+            for (i = 0; i < 16; i++) {
+                context->crypto.chacha_local.input[i] = ntohl(*(unsigned int *)&buffer[buf_pos]);
+                buf_pos += sizeof(unsigned int);
+            }
+            for (i = 0; i < 16; i++) {
+                context->crypto.chacha_local.input[i] = ntohl(*(unsigned int *)&buffer[buf_pos]);
+                buf_pos += sizeof(unsigned int);
+            }
+            // memcpy(context->crypto.chacha_local.ks, &buffer[buf_pos], CHACHA_BLOCKLEN);
+            // buf_pos += CHACHA_BLOCKLEN;
+            // memcpy(context->crypto.chacha_remote.ks, &buffer[buf_pos], CHACHA_BLOCKLEN);
+            // buf_pos += CHACHA_BLOCKLEN;
         }
+#endif
         
         TLS_IMPORT_CHECK_SIZE(buf_pos, 2, buf_len)
         unsigned short master_key_len = ntohs(*(unsigned short *)&buffer[buf_pos]);
