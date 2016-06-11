@@ -2822,7 +2822,11 @@ void tls_packet_update(struct TLSPacket *packet) {
                             memset(packet->buf, 0, packet->len);
                         }
                     } else
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                    if (packet->context->crypto.created >= 2) {
+#else
                     if (packet->context->crypto.created == 2) {
+#endif
                         int ct_size = length + header_size + 12 + __TLS_GCM_TAG_LEN;
                         unsigned char *ct = (unsigned char *)TLS_MALLOC(ct_size);
                         if (ct) {
@@ -2838,14 +2842,18 @@ void tls_packet_update(struct TLSPacket *packet) {
                             aad[9] = packet->buf[1];
                             aad[10] = packet->buf[2];
                             *((unsigned short *)&aad[11]) = htons(packet->len - header_size);
-                            
+
                             int ct_pos = header_size;
                             unsigned char iv[12];
                             memcpy(iv, packet->context->crypto.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
                             tls_random(iv + __TLS_AES_GCM_IV_LENGTH, 8);
                             memcpy(ct + ct_pos, iv + __TLS_AES_GCM_IV_LENGTH, 8);
                             ct_pos += 8;
-                            
+
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                            if (packet->context->crypto.created == 3) {
+                            } else {
+#endif
                             gcm_reset(&packet->context->crypto.aes_gcm_local);
                             gcm_add_iv(&packet->context->crypto.aes_gcm_local, iv, 12);
                             gcm_add_aad(&packet->context->crypto.aes_gcm_local, aad, sizeof(aad));
@@ -2856,6 +2864,9 @@ void tls_packet_update(struct TLSPacket *packet) {
                             unsigned long taglen = __TLS_GCM_TAG_LEN;
                             gcm_done(&packet->context->crypto.aes_gcm_local, ct + ct_pos, &taglen);
                             ct_pos += taglen;
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                            }
+#endif
                             
                             memcpy(ct, packet->buf, 3);
                             *(unsigned short *)&ct[3] = htons(ct_pos - header_size);
@@ -2867,11 +2878,6 @@ void tls_packet_update(struct TLSPacket *packet) {
                             // invalidate packet
                             memset(packet->buf, 0, packet->len);
                         }
-#ifdef TLS_WITH_CHACHA20_POLY1305
-                    } else
-                    if (packet->context->crypto.created == 3) {
-                        // to do
-#endif
                     } else {
                         // invalidate packet (never reached)
                         memset(packet->buf, 0, packet->len);
