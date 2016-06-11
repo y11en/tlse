@@ -526,6 +526,410 @@ void __private_tls_ecc_dhe_free(struct TLSContext *context);
 void __private_tls_dh_clear_key(DHKey *key);
 #endif
 
+#ifdef TLS_WITH_CHACHA20_POLY1305
+#define CHACHA_MINKEYLEN 	16
+#define CHACHA_NONCELEN		8
+#define CHACHA_CTRLEN		8
+#define CHACHA_STATELEN		(CHACHA_NONCELEN+CHACHA_CTRLEN)
+#define CHACHA_BLOCKLEN		64
+
+#define POLY1305_MAX_AAD    32
+#define POLY1305_KEYLEN		32
+#define POLY1305_TAGLEN		16
+
+#define u_int   unsigned int
+#define uint8_t unsigned char
+#define u_char  unsigned char
+#ifndef NULL
+#define NULL (void *)0
+#endif
+
+struct chacha_ctx {
+	u_int input[16];
+	uint8_t ks[CHACHA_BLOCKLEN];
+	uint8_t unused;
+};
+
+static inline void chacha_keysetup(struct chacha_ctx *x, const u_char *k, u_int kbits) __attribute__((__bounded__(__minbytes__, 2, CHACHA_MINKEYLEN)));
+static inline void chacha_ivsetup(struct chacha_ctx *x, const u_char *iv, const u_char *ctr) __attribute__((__bounded__(__minbytes__, 2, CHACHA_NONCELEN))) __attribute__((__bounded__(__minbytes__, 3, CHACHA_CTRLEN)));
+static inline void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m, u_char *c, u_int bytes) __attribute__((__bounded__(__buffer__, 2, 4))) __attribute__((__bounded__(__buffer__, 3, 4)));
+void poly1305_auth(u_char out[POLY1305_TAGLEN], const u_char *m, size_t inlen, const u_char key[POLY1305_KEYLEN]) __attribute__((__bounded__(__minbytes__, 1, POLY1305_TAGLEN))) __attribute__((__bounded__(__buffer__, 2, 3))) __attribute__((__bounded__(__minbytes__, 4, POLY1305_KEYLEN)));
+
+typedef unsigned char u8;
+typedef unsigned int u32;
+
+typedef struct chacha_ctx chacha_ctx;
+
+#define U8C(v) (v##U)
+#define U32C(v) (v##U)
+
+#define U8V(v) ((u8)(v) & U8C(0xFF))
+#define U32V(v) ((u32)(v) & U32C(0xFFFFFFFF))
+
+#define ROTL32(v, n) \
+  (U32V((v) << (n)) | ((v) >> (32 - (n))))
+
+#define U8TO32_LITTLE(p) \
+  (((u32)((p)[0])) | \
+   ((u32)((p)[1]) <<  8) | \
+   ((u32)((p)[2]) << 16) | \
+   ((u32)((p)[3]) << 24))
+
+#define U32TO8_LITTLE(p, v) \
+  do { \
+    (p)[0] = U8V((v)); \
+    (p)[1] = U8V((v) >>  8); \
+    (p)[2] = U8V((v) >> 16); \
+    (p)[3] = U8V((v) >> 24); \
+  } while (0)
+
+#define ROTATE(v,c) (ROTL32(v,c))
+#define XOR(v,w) ((v) ^ (w))
+#define PLUS(v,w) (U32V((v) + (w)))
+#define PLUSONE(v) (PLUS((v),1))
+
+#define QUARTERROUND(a,b,c,d) \
+  a = PLUS(a,b); d = ROTATE(XOR(d,a),16); \
+  c = PLUS(c,d); b = ROTATE(XOR(b,c),12); \
+  a = PLUS(a,b); d = ROTATE(XOR(d,a), 8); \
+  c = PLUS(c,d); b = ROTATE(XOR(b,c), 7);
+
+static const char sigma[16] = "expand 32-byte k";
+static const char tau[16] = "expand 16-byte k";
+
+static inline void chacha_keysetup(chacha_ctx *x, const u8 *k, u32 kbits) {
+	const char *constants;
+
+	x->input[4] = U8TO32_LITTLE(k + 0);
+	x->input[5] = U8TO32_LITTLE(k + 4);
+	x->input[6] = U8TO32_LITTLE(k + 8);
+	x->input[7] = U8TO32_LITTLE(k + 12);
+	if (kbits == 256) { /* recommended */
+		k += 16;
+		constants = sigma;
+	} else { /* kbits == 128 */
+		constants = tau;
+	}
+	x->input[8] = U8TO32_LITTLE(k + 0);
+	x->input[9] = U8TO32_LITTLE(k + 4);
+	x->input[10] = U8TO32_LITTLE(k + 8);
+	x->input[11] = U8TO32_LITTLE(k + 12);
+	x->input[0] = U8TO32_LITTLE(constants + 0);
+	x->input[1] = U8TO32_LITTLE(constants + 4);
+	x->input[2] = U8TO32_LITTLE(constants + 8);
+	x->input[3] = U8TO32_LITTLE(constants + 12);
+}
+
+static inline void chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter) {
+	x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
+	x->input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
+	x->input[14] = U8TO32_LITTLE(iv + 0);
+	x->input[15] = U8TO32_LITTLE(iv + 4);
+}
+
+static inline void chacha_encrypt_bytes(chacha_ctx *x, const u8 *m, u8 *c, u32 bytes) {
+	u32 x0, x1, x2, x3, x4, x5, x6, x7;
+	u32 x8, x9, x10, x11, x12, x13, x14, x15;
+	u32 j0, j1, j2, j3, j4, j5, j6, j7;
+	u32 j8, j9, j10, j11, j12, j13, j14, j15;
+	u8 *ctarget = NULL;
+	u8 tmp[64];
+	u_int i;
+
+	if (!bytes)
+		return;
+
+	j0 = x->input[0];
+	j1 = x->input[1];
+	j2 = x->input[2];
+	j3 = x->input[3];
+	j4 = x->input[4];
+	j5 = x->input[5];
+	j6 = x->input[6];
+	j7 = x->input[7];
+	j8 = x->input[8];
+	j9 = x->input[9];
+	j10 = x->input[10];
+	j11 = x->input[11];
+	j12 = x->input[12];
+	j13 = x->input[13];
+	j14 = x->input[14];
+	j15 = x->input[15];
+
+	for (;;) {
+		if (bytes < 64) {
+			for (i = 0; i < bytes; ++i)
+				tmp[i] = m[i];
+			m = tmp;
+			ctarget = c;
+			c = tmp;
+		}
+		x0 = j0;
+		x1 = j1;
+		x2 = j2;
+		x3 = j3;
+		x4 = j4;
+		x5 = j5;
+		x6 = j6;
+		x7 = j7;
+		x8 = j8;
+		x9 = j9;
+		x10 = j10;
+		x11 = j11;
+		x12 = j12;
+		x13 = j13;
+		x14 = j14;
+		x15 = j15;
+		for (i = 20; i > 0; i -= 2) {
+			QUARTERROUND(x0, x4, x8, x12)
+			QUARTERROUND(x1, x5, x9, x13)
+			QUARTERROUND(x2, x6, x10, x14)
+			QUARTERROUND(x3, x7, x11, x15)
+			QUARTERROUND(x0, x5, x10, x15)
+			QUARTERROUND(x1, x6, x11, x12)
+			QUARTERROUND(x2, x7, x8, x13)
+			QUARTERROUND(x3, x4, x9, x14)
+		}
+		x0 = PLUS(x0, j0);
+		x1 = PLUS(x1, j1);
+		x2 = PLUS(x2, j2);
+		x3 = PLUS(x3, j3);
+		x4 = PLUS(x4, j4);
+		x5 = PLUS(x5, j5);
+		x6 = PLUS(x6, j6);
+		x7 = PLUS(x7, j7);
+		x8 = PLUS(x8, j8);
+		x9 = PLUS(x9, j9);
+		x10 = PLUS(x10, j10);
+		x11 = PLUS(x11, j11);
+		x12 = PLUS(x12, j12);
+		x13 = PLUS(x13, j13);
+		x14 = PLUS(x14, j14);
+		x15 = PLUS(x15, j15);
+
+		if (bytes < 64) {
+			U32TO8_LITTLE(x->ks + 0, x0);
+			U32TO8_LITTLE(x->ks + 4, x1);
+			U32TO8_LITTLE(x->ks + 8, x2);
+			U32TO8_LITTLE(x->ks + 12, x3);
+			U32TO8_LITTLE(x->ks + 16, x4);
+			U32TO8_LITTLE(x->ks + 20, x5);
+			U32TO8_LITTLE(x->ks + 24, x6);
+			U32TO8_LITTLE(x->ks + 28, x7);
+			U32TO8_LITTLE(x->ks + 32, x8);
+			U32TO8_LITTLE(x->ks + 36, x9);
+			U32TO8_LITTLE(x->ks + 40, x10);
+			U32TO8_LITTLE(x->ks + 44, x11);
+			U32TO8_LITTLE(x->ks + 48, x12);
+			U32TO8_LITTLE(x->ks + 52, x13);
+			U32TO8_LITTLE(x->ks + 56, x14);
+			U32TO8_LITTLE(x->ks + 60, x15);
+		}
+
+		x0 = XOR(x0, U8TO32_LITTLE(m + 0));
+		x1 = XOR(x1, U8TO32_LITTLE(m + 4));
+		x2 = XOR(x2, U8TO32_LITTLE(m + 8));
+		x3 = XOR(x3, U8TO32_LITTLE(m + 12));
+		x4 = XOR(x4, U8TO32_LITTLE(m + 16));
+		x5 = XOR(x5, U8TO32_LITTLE(m + 20));
+		x6 = XOR(x6, U8TO32_LITTLE(m + 24));
+		x7 = XOR(x7, U8TO32_LITTLE(m + 28));
+		x8 = XOR(x8, U8TO32_LITTLE(m + 32));
+		x9 = XOR(x9, U8TO32_LITTLE(m + 36));
+		x10 = XOR(x10, U8TO32_LITTLE(m + 40));
+		x11 = XOR(x11, U8TO32_LITTLE(m + 44));
+		x12 = XOR(x12, U8TO32_LITTLE(m + 48));
+		x13 = XOR(x13, U8TO32_LITTLE(m + 52));
+		x14 = XOR(x14, U8TO32_LITTLE(m + 56));
+		x15 = XOR(x15, U8TO32_LITTLE(m + 60));
+
+		j12 = PLUSONE(j12);
+		if (!j12) {
+			j13 = PLUSONE(j13);
+			/*
+			 * Stopping at 2^70 bytes per nonce is the user's
+			 * responsibility.
+			 */
+		}
+
+		U32TO8_LITTLE(c + 0, x0);
+		U32TO8_LITTLE(c + 4, x1);
+		U32TO8_LITTLE(c + 8, x2);
+		U32TO8_LITTLE(c + 12, x3);
+		U32TO8_LITTLE(c + 16, x4);
+		U32TO8_LITTLE(c + 20, x5);
+		U32TO8_LITTLE(c + 24, x6);
+		U32TO8_LITTLE(c + 28, x7);
+		U32TO8_LITTLE(c + 32, x8);
+		U32TO8_LITTLE(c + 36, x9);
+		U32TO8_LITTLE(c + 40, x10);
+		U32TO8_LITTLE(c + 44, x11);
+		U32TO8_LITTLE(c + 48, x12);
+		U32TO8_LITTLE(c + 52, x13);
+		U32TO8_LITTLE(c + 56, x14);
+		U32TO8_LITTLE(c + 60, x15);
+
+		if (bytes <= 64) {
+			if (bytes < 64) {
+				for (i = 0; i < bytes; ++i)
+					ctarget[i] = c[i];
+			}
+			x->input[12] = j12;
+			x->input[13] = j13;
+			x->unused = 64 - bytes;
+			return;
+		}
+		bytes -= 64;
+		c += 64;
+		m += 64;
+	}
+}
+
+#define mul32x32_64(a,b) ((uint64_t)(a) * (b))
+
+#define U8TO32_LE(p) \
+	(((uint32_t)((p)[0])) | \
+	 ((uint32_t)((p)[1]) <<  8) | \
+	 ((uint32_t)((p)[2]) << 16) | \
+	 ((uint32_t)((p)[3]) << 24))
+
+#define U32TO8_LE(p, v) \
+	do { \
+		(p)[0] = (uint8_t)((v)); \
+		(p)[1] = (uint8_t)((v) >>  8); \
+		(p)[2] = (uint8_t)((v) >> 16); \
+		(p)[3] = (uint8_t)((v) >> 24); \
+	} while (0)
+
+void poly1305_auth(unsigned char out[POLY1305_TAGLEN], const unsigned char *m, size_t inlen, const unsigned char key[POLY1305_KEYLEN]) {
+	uint32_t t0,t1,t2,t3;
+	uint32_t h0,h1,h2,h3,h4;
+	uint32_t r0,r1,r2,r3,r4;
+	uint32_t s1,s2,s3,s4;
+	uint32_t b, nb;
+	size_t j;
+	uint64_t t[5];
+	uint64_t f0,f1,f2,f3;
+	uint32_t g0,g1,g2,g3,g4;
+	uint64_t c;
+	unsigned char mp[16];
+    
+	/* clamp key */
+	t0 = U8TO32_LE(key+0);
+	t1 = U8TO32_LE(key+4);
+	t2 = U8TO32_LE(key+8);
+	t3 = U8TO32_LE(key+12);
+
+	/* precompute multipliers */
+	r0 = t0 & 0x3ffffff; t0 >>= 26; t0 |= t1 << 6;
+	r1 = t0 & 0x3ffff03; t1 >>= 20; t1 |= t2 << 12;
+	r2 = t1 & 0x3ffc0ff; t2 >>= 14; t2 |= t3 << 18;
+	r3 = t2 & 0x3f03fff; t3 >>= 8;
+	r4 = t3 & 0x00fffff;
+
+	s1 = r1 * 5;
+	s2 = r2 * 5;
+	s3 = r3 * 5;
+	s4 = r4 * 5;
+
+	/* init state */
+	h0 = 0;
+	h1 = 0;
+	h2 = 0;
+	h3 = 0;
+	h4 = 0;
+
+	/* full blocks */
+	if (inlen < 16) goto poly1305_donna_atmost15bytes;
+poly1305_donna_16bytes:
+	m += 16;
+	inlen -= 16;
+
+	t0 = U8TO32_LE(m-16);
+	t1 = U8TO32_LE(m-12);
+	t2 = U8TO32_LE(m-8);
+	t3 = U8TO32_LE(m-4);
+
+	h0 += t0 & 0x3ffffff;
+	h1 += ((((uint64_t)t1 << 32) | t0) >> 26) & 0x3ffffff;
+	h2 += ((((uint64_t)t2 << 32) | t1) >> 20) & 0x3ffffff;
+	h3 += ((((uint64_t)t3 << 32) | t2) >> 14) & 0x3ffffff;
+	h4 += (t3 >> 8) | (1 << 24);
+
+
+poly1305_donna_mul:
+	t[0]  = mul32x32_64(h0,r0) + mul32x32_64(h1,s4) + mul32x32_64(h2,s3) + mul32x32_64(h3,s2) + mul32x32_64(h4,s1);
+	t[1]  = mul32x32_64(h0,r1) + mul32x32_64(h1,r0) + mul32x32_64(h2,s4) + mul32x32_64(h3,s3) + mul32x32_64(h4,s2);
+	t[2]  = mul32x32_64(h0,r2) + mul32x32_64(h1,r1) + mul32x32_64(h2,r0) + mul32x32_64(h3,s4) + mul32x32_64(h4,s3);
+	t[3]  = mul32x32_64(h0,r3) + mul32x32_64(h1,r2) + mul32x32_64(h2,r1) + mul32x32_64(h3,r0) + mul32x32_64(h4,s4);
+	t[4]  = mul32x32_64(h0,r4) + mul32x32_64(h1,r3) + mul32x32_64(h2,r2) + mul32x32_64(h3,r1) + mul32x32_64(h4,r0);
+
+	                h0 = (uint32_t)t[0] & 0x3ffffff; c =           (t[0] >> 26);
+	t[1] += c;      h1 = (uint32_t)t[1] & 0x3ffffff; b = (uint32_t)(t[1] >> 26);
+	t[2] += b;      h2 = (uint32_t)t[2] & 0x3ffffff; b = (uint32_t)(t[2] >> 26);
+	t[3] += b;      h3 = (uint32_t)t[3] & 0x3ffffff; b = (uint32_t)(t[3] >> 26);
+	t[4] += b;      h4 = (uint32_t)t[4] & 0x3ffffff; b = (uint32_t)(t[4] >> 26);
+	h0 += b * 5;
+
+	if (inlen >= 16) goto poly1305_donna_16bytes;
+
+	/* final bytes */
+poly1305_donna_atmost15bytes:
+	if (!inlen) goto poly1305_donna_finish;
+
+	for (j = 0; j < inlen; j++) mp[j] = m[j];
+	mp[j++] = 1;
+	for (; j < 16; j++)	mp[j] = 0;
+	inlen = 0;
+
+	t0 = U8TO32_LE(mp+0);
+	t1 = U8TO32_LE(mp+4);
+	t2 = U8TO32_LE(mp+8);
+	t3 = U8TO32_LE(mp+12);
+
+	h0 += t0 & 0x3ffffff;
+	h1 += ((((uint64_t)t1 << 32) | t0) >> 26) & 0x3ffffff;
+	h2 += ((((uint64_t)t2 << 32) | t1) >> 20) & 0x3ffffff;
+	h3 += ((((uint64_t)t3 << 32) | t2) >> 14) & 0x3ffffff;
+	h4 += (t3 >> 8);
+
+	goto poly1305_donna_mul;
+
+poly1305_donna_finish:
+	             b = h0 >> 26; h0 = h0 & 0x3ffffff;
+	h1 +=     b; b = h1 >> 26; h1 = h1 & 0x3ffffff;
+	h2 +=     b; b = h2 >> 26; h2 = h2 & 0x3ffffff;
+	h3 +=     b; b = h3 >> 26; h3 = h3 & 0x3ffffff;
+	h4 +=     b; b = h4 >> 26; h4 = h4 & 0x3ffffff;
+	h0 += b * 5; b = h0 >> 26; h0 = h0 & 0x3ffffff;
+	h1 +=     b;
+
+	g0 = h0 + 5; b = g0 >> 26; g0 &= 0x3ffffff;
+	g1 = h1 + b; b = g1 >> 26; g1 &= 0x3ffffff;
+	g2 = h2 + b; b = g2 >> 26; g2 &= 0x3ffffff;
+	g3 = h3 + b; b = g3 >> 26; g3 &= 0x3ffffff;
+	g4 = h4 + b - (1 << 26);
+
+	b = (g4 >> 31) - 1;
+	nb = ~b;
+	h0 = (h0 & nb) | (g0 & b);
+	h1 = (h1 & nb) | (g1 & b);
+	h2 = (h2 & nb) | (g2 & b);
+	h3 = (h3 & nb) | (g3 & b);
+	h4 = (h4 & nb) | (g4 & b);
+
+	f0 = ((h0      ) | (h1 << 26)) + (uint64_t)U8TO32_LE(&key[16]);
+	f1 = ((h1 >>  6) | (h2 << 20)) + (uint64_t)U8TO32_LE(&key[20]);
+	f2 = ((h2 >> 12) | (h3 << 14)) + (uint64_t)U8TO32_LE(&key[24]);
+	f3 = ((h3 >> 18) | (h4 <<  8)) + (uint64_t)U8TO32_LE(&key[28]);
+
+	U32TO8_LE(&out[ 0], f0); f1 += (f0 >> 32);
+	U32TO8_LE(&out[ 4], f1); f2 += (f1 >> 32);
+	U32TO8_LE(&out[ 8], f2); f3 += (f2 >> 32);
+	U32TO8_LE(&out[12], f3);
+}
+#endif
+
 static unsigned char dependecies_loaded = 0;
 // not supported
 // static unsigned char TLS_DSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x52, 0xCE, 0x38, 0x04, 0x03, 0x00};
@@ -2389,7 +2793,7 @@ void tls_packet_update(struct TLSPacket *packet) {
                         if (ct) {
                             memset(ct, 0, ct_size);
                             // AEAD
-                            // sequance number (8 bytes)
+                            // sequence number (8 bytes)
                             // content type (1 byte)
                             // version (2 bytes)
                             // length (2 bytes)
@@ -3064,6 +3468,9 @@ int tls_cipher_supported(struct TLSContext *context, unsigned short cipher) {
         case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384:
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+#endif
             if (context->version >= TLS_V12) {
                 if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
                     return 1;
@@ -3086,6 +3493,10 @@ int tls_cipher_supported(struct TLSContext *context, unsigned short cipher) {
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        case TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+        case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+#endif
 #endif
         case TLS_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
@@ -3105,6 +3516,9 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
 #ifdef TLS_ECDSA_SUPPORTED
         case TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA:
         case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+#endif
             if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
                 return 1;
             return 0;
@@ -3130,6 +3544,10 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        case TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+        case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+#endif
             if (context->version >= TLS_V12)
                 return 1;
             break;
@@ -3176,18 +3594,21 @@ int tls_cipher_is_ephemeral(struct TLSContext *context) {
             case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
             case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
             case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
+            case TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
                 return 1;
             case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
             case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
             case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256:
             case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
             case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+            case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
             case TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA:
             case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA:
             case TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
             case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384:
             case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
             case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+            case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
                 return 2;
         }
     }
@@ -3243,6 +3664,12 @@ const char *tls_cipher_name(struct TLSContext *context) {
                 return "ECDHE-ECDSA-AES128GCM-SHA256";
             case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
                 return "ECDHE-ECDSA-AES256GCM-SHA384";
+            case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+                return "ECDHE-RSA-CHACHA20-POLY1305-SHA256";
+            case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+                return "ECDHE-ECDSA-CHACHA20-POLY1305-SHA256";
+            case TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+                return "ECDHE-DHE-CHACHA20-POLY1305-SHA256";
         }
     }
     return "UNKNOWN";
@@ -3380,6 +3807,9 @@ int tls_is_ecdsa(struct TLSContext *context) {
         case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384:
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+#endif
             return 1;
     }
     return 0;
@@ -3684,15 +4114,29 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
 #endif
 #ifdef TLS_FORWARD_SECRECY
 #ifdef TLS_CLIENT_ECDHE
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                // sizeof ciphers (17 ciphers * 2 bytes)
+                tls_packet_uint16(packet, 34);
+#else
                 // sizeof ciphers (14 ciphers * 2 bytes)
                 tls_packet_uint16(packet, 28);
+#endif
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256);
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256);
+                tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256);
+#endif
+#else
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                // sizeof ciphers (11 ciphers * 2 bytes)
+                tls_packet_uint16(packet, 22);
 #else
                 // sizeof ciphers (10 ciphers * 2 bytes)
                 tls_packet_uint16(packet, 20);
+#endif
 #endif
                 // not yet supported, because the first message sent (this one)
                 // is already hashed by the client with sha256 (sha384 not yet supported client-side)
@@ -3703,6 +4147,9 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 tls_packet_uint16(packet, TLS_DHE_RSA_WITH_AES_128_CBC_SHA256);
                 tls_packet_uint16(packet, TLS_DHE_RSA_WITH_AES_256_CBC_SHA);
                 tls_packet_uint16(packet, TLS_DHE_RSA_WITH_AES_128_CBC_SHA);
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                tls_packet_uint16(packet, TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256);
+#endif
 #else
                 tls_packet_uint16(packet, 10);
 #endif
