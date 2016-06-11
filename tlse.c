@@ -121,411 +121,6 @@
 #define TLS_IMPORT_CHECK_SIZE(buf_pos, size, buf_size) if (((int)size > (int)buf_size - buf_pos) || ((int)buf_pos > (int)buf_size)) { DEBUG_PRINT("IMPORT ELEMENT SIZE ERROR\n"); tls_destroy_context(context); return NULL; }
 #define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { DEBUG_PRINT("* UNEXPECTED MESSAGE\n"); payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
 
-typedef enum {
-    KEA_dhe_dss,
-    KEA_dhe_rsa,
-    KEA_dh_anon,
-    KEA_rsa,
-    KEA_dh_dss,
-    KEA_dh_rsa,
-    KEA_ec_diffie_hellman
-} KeyExchangeAlgorithm;
-
-typedef enum {
-    rsa_sign = 1,
-    dss_sign = 2,
-    rsa_fixed_dh = 3,
-    dss_fixed_dh = 4,
-    rsa_ephemeral_dh_RESERVED = 5,
-    dss_ephemeral_dh_RESERVED = 6,
-    fortezza_dms_RESERVED = 20,
-    ecdsa_sign = 64,
-    rsa_fixed_ecdh = 65,
-    ecdsa_fixed_ecdh = 66
-} TLSClientCertificateType;
-
-typedef enum {
-    none = 0,
-    md5 = 1,
-    sha1 = 2,
-    sha224 = 3,
-    sha256 = 4,
-    sha384 = 5,
-    sha512 = 6,
-    __md5_sha1 = 255
-} TLSHashAlgorithm;
-
-typedef enum {
-    anonymous = 0,
-    rsa = 1,
-    dsa = 2,
-    ecdsa = 3
-} TLSSignatureAlgorithm;
-
-struct TLSCertificate {
-    unsigned short version;
-    unsigned int algorithm;
-    unsigned int key_algorithm;
-    unsigned int ec_algorithm;
-    unsigned char *exponent;
-    unsigned int exponent_len;
-    unsigned char *pk;
-    unsigned int pk_len;
-    unsigned char *priv;
-    unsigned int priv_len;
-    unsigned char *issuer_country;
-    unsigned char *issuer_state;
-    unsigned char *issuer_location;
-    unsigned char *issuer_entity;
-    unsigned char *issuer_subject;
-    unsigned char *not_before;
-    unsigned char *not_after;
-    unsigned char *country;
-    unsigned char *state;
-    unsigned char *location;
-    unsigned char *entity;
-    unsigned char *subject;
-    unsigned char *serial_number;
-    unsigned int serial_len;
-    unsigned char *sign_key;
-    unsigned int sign_len;
-    unsigned char *fingerprint;
-    unsigned char *der_bytes;
-    unsigned int der_len;
-    unsigned char *bytes;
-    unsigned int len;
-};
-
-typedef struct {
-    union {
-        symmetric_CBC aes_local;
-        gcm_state aes_gcm_local;
-    };
-    union {
-        symmetric_CBC aes_remote;
-        gcm_state aes_gcm_remote;
-    };
-    union {
-        unsigned char local_mac[__TLS_MAX_MAC_SIZE];
-        unsigned char local_aead_iv[__TLS_AES_GCM_IV_LENGTH];
-    };
-    union {
-        unsigned char remote_aead_iv[__TLS_AES_GCM_IV_LENGTH];
-        unsigned char remote_mac[__TLS_MAX_MAC_SIZE];
-    };
-    unsigned char created;
-} TLSCipher;
-
-typedef struct {
-    hash_state hash;
-#ifdef TLS_LEGACY_SUPPORT
-    hash_state hash2;
-#endif
-    unsigned char created;
-} TLSHash;
-
-#ifdef TLS_FORWARD_SECRECY
-#define mp_init(a)                           ltc_mp.init(a)
-#define mp_init_multi                        ltc_init_multi
-#define mp_clear(a)                          ltc_mp.deinit(a)
-#define mp_clear_multi                       ltc_deinit_multi
-#define mp_count_bits(a)                     ltc_mp.count_bits(a)
-#define mp_read_radix(a, b, c)               ltc_mp.read_radix(a, b, c)
-#define mp_unsigned_bin_size(a)              ltc_mp.unsigned_size(a)
-#define mp_to_unsigned_bin(a, b)             ltc_mp.unsigned_write(a, b)
-#define mp_read_unsigned_bin(a, b, c)        ltc_mp.unsigned_read(a, b, c)
-#define mp_exptmod(a, b, c, d)               ltc_mp.exptmod(a, b, c, d)
-#define mp_add(a, b, c)                      ltc_mp.add(a, b, c)
-#define mp_mul(a, b, c)                      ltc_mp.mul(a, b, c)
-#define mp_cmp(a, b)                         ltc_mp.compare(a, b)
-#define mp_cmp_d(a, b)                       ltc_mp.compare_d(a, b)
-#define mp_sqr(a, b)                         ltc_mp.sqr(a, b)
-#define mp_mod(a, b, c)                      ltc_mp.mpdiv(a, b, NULL, c)
-#define mp_sub(a, b, c)                      ltc_mp.sub(a, b, c)
-#define mp_set(a, b)                         ltc_mp.set_int(a, b)
-
-typedef struct {
-    void *x;
-    void *y;
-    void *p;
-    void *g;
-} DHKey;
-
-struct ECCCurveParameters {
-    int size;
-    int iana;
-    const char *name;
-    const char *P;
-    const char *A;
-    const char *B;
-    const char *Gx;
-    const char *Gy;
-    const char *order;
-    ltc_ecc_set_type dp;
-};
-
-static struct ECCCurveParameters secp192r1 = {
-    24,
-    19,
-    "secp192r1",
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFF", // P
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFC", // A
-    "64210519E59C80E70FA7E9AB72243049FEB8DEECC146B9B1", // B
-    "188DA80EB03090F67CBF20EB43A18800F4FF0AFD82FF1012", // Gx
-    "07192B95FFC8DA78631011ED6B24CDD573F977A11E794811", // Gy
-    "FFFFFFFFFFFFFFFFFFFFFFFF99DEF836146BC9B1B4D22831"  // order (n)
-};
-
-
-static struct ECCCurveParameters secp224r1 = {
-    28,
-    21,
-    "secp224r1",
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000000000000000001", // P
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFE", // A
-    "B4050A850C04B3ABF54132565044B0B7D7BFD8BA270B39432355FFB4", // B
-    "B70E0CBD6BB4BF7F321390B94A03C1D356C21122343280D6115C1D21", // Gx
-    "BD376388B5F723FB4C22DFE6CD4375A05A07476444D5819985007E34", // Gy
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFF16A2E0B8F03E13DD29455C5C2A3D"  // order (n)
-};
-
-static struct ECCCurveParameters secp224k1 = {
-    28,
-    20,
-    "secp224k1",
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFE56D", // P
-    "00000000000000000000000000000000000000000000000000000000", // A
-    "00000000000000000000000000000000000000000000000000000005", // B
-    "A1455B334DF099DF30FC28A169A467E9E47075A90F7E650EB6B7A45C", // Gx
-    "7E089FED7FBA344282CAFBD6F7E319F7C0B0BD59E2CA4BDB556D61A5", // Gy
-    "0000000000000000000000000001DCE8D2EC6184CAF0A971769FB1F7"  // order (n)
-};
-
-static struct ECCCurveParameters secp256r1 = {
-    32,
-    23,
-    "secp256r1",
-    "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", // P
-    "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC", // A
-    "5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B", // B
-    "6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296", // Gx
-    "4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5", // Gy
-    "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551"  // order (n)
-};
-
-static struct ECCCurveParameters secp256k1 = {
-    32,
-    22,
-    "secp256k1",
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", // P
-    "0000000000000000000000000000000000000000000000000000000000000000", // A
-    "0000000000000000000000000000000000000000000000000000000000000007", // B
-    "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", // Gx
-    "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", // Gy
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"  // order (n)
-};
-
-static struct ECCCurveParameters secp384r1 = {
-    48,
-    24,
-    "secp384r1",
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFF", // P
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFC", // A
-    "B3312FA7E23EE7E4988E056BE3F82D19181D9C6EFE8141120314088F5013875AC656398D8A2ED19D2A85C8EDD3EC2AEF", // B
-    "AA87CA22BE8B05378EB1C71EF320AD746E1D3B628BA79B9859F741E082542A385502F25DBF55296C3A545E3872760AB7", // Gx
-    "3617DE4A96262C6F5D9E98BF9292DC29F8F41DBD289A147CE9DA3113B5F0B8C00A60B1CE1D7E819D7A431D7C90EA0E5F", // Gy
-    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973"  // order (n)
-};
-
-static struct ECCCurveParameters secp521r1 = {
-    66,
-    25,
-    "secp521r1",
-    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", // P
-    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC", // A
-    "0051953EB9618E1C9A1F929A21A0B68540EEA2DA725B99B315F3B8B489918EF109E156193951EC7E937B1652C0BD3BB1BF073573DF883D2C34F1EF451FD46B503F00", // B
-    "00C6858E06B70404E9CD9E3ECB662395B4429C648139053FB521F828AF606B4D3DBAA14B5E77EFE75928FE1DC127A2FFA8DE3348B3C1856A429BF97E7E31C2E5BD66", // Gx
-    "011839296A789A3BC0045C8A5FB42C7D1BD998F54449579B446817AFBD17273E662C97EE72995EF42640C550B9013FAD0761353C7086A272C24088BE94769FD16650", // Gy
-    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
-};
-
-static struct ECCCurveParameters *default_curve = &secp256r1;
-
-void init_curve(struct ECCCurveParameters *curve) {
-    curve->dp.size = curve->size;
-    curve->dp.name = (char *)curve->name;
-    curve->dp.B = (char *)curve->B;
-    curve->dp.prime = (char *)curve->P;
-    curve->dp.Gx = (char *)curve->Gx;
-    curve->dp.Gy = (char *)curve->Gy;
-    curve->dp.order = (char *)curve->order;
-}
-
-void init_curves() {
-    init_curve(&secp192r1);
-    init_curve(&secp224r1);
-    init_curve(&secp224k1);
-    init_curve(&secp256r1);
-    init_curve(&secp256k1);
-    init_curve(&secp384r1);
-    init_curve(&secp521r1);
-}
-#endif
-
-struct TLSContext {
-    unsigned char remote_random[__TLS_CLIENT_RANDOM_SIZE];
-    unsigned char local_random[__TLS_SERVER_RANDOM_SIZE];
-    unsigned char session[__TLS_MAX_SESSION_ID];
-    unsigned char session_size;
-    unsigned short cipher;
-    unsigned short version;
-    unsigned char is_server;
-    struct TLSCertificate **certificates;
-    struct TLSCertificate *private_key;
-#ifdef TLS_ECDSA_SUPPORTED
-    struct TLSCertificate *ec_private_key;
-#endif
-#ifdef TLS_FORWARD_SECRECY
-    DHKey *dhe;
-    ecc_key *ecc_dhe;
-    char *default_dhe_p;
-    char *default_dhe_g;
-    const struct ECCCurveParameters *curve;
-#endif
-    struct TLSCertificate **client_certificates;
-    unsigned int certificates_count;
-    unsigned int client_certificates_count;
-    unsigned char *master_key;
-    unsigned int master_key_len;
-    unsigned char *premaster_key;
-    unsigned int premaster_key_len;
-    unsigned char cipher_spec_set;
-    TLSCipher crypto;
-    TLSHash *handshake_hash;
-    
-    unsigned char *message_buffer;
-    unsigned int message_buffer_len;
-    uint64_t remote_sequence_number;
-    uint64_t local_sequence_number;
-    
-    unsigned char connection_status;
-    unsigned char critical_error;
-    unsigned char error_code;
-    
-    unsigned char *tls_buffer;
-    unsigned int tls_buffer_len;
-    
-    unsigned char *application_buffer;
-    unsigned int application_buffer_len;
-    unsigned char is_child;
-    unsigned char exportable;
-    unsigned char *exportable_keys;
-    unsigned char exportable_size;
-    char *sni;
-    unsigned char request_client_certificate;
-    unsigned char dtls;
-    unsigned short dtls_epoch_local;
-    unsigned short dtls_epoch_remote;
-    unsigned char *dtls_cookie;
-    unsigned short dtls_cookie_len;
-    unsigned char *cached_handshake;
-    unsigned int cached_handshake_len;
-    unsigned char client_verified;
-    // handshake messages flags
-    unsigned char hs_messages[11];
-    void *user_data;
-    struct TLSCertificate **root_certificates;
-    unsigned int root_count;
-#ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
-    unsigned char *verify_data;
-    unsigned char verify_len;
-#endif
-};
-
-struct TLSPacket {
-    unsigned char *buf;
-    unsigned int len;
-    unsigned int size;
-    unsigned char broken;
-    struct TLSContext *context;
-};
-
-#ifdef SSL_COMPATIBLE_INTERFACE
-#ifdef _WIN32
-#include <winsock2.h>
-#else
-#include <sys/socket.h>
-#endif
-#endif
-
-static unsigned int version_id[] = {1, 1, 1, 0};
-static unsigned int pk_id[] = {1, 1, 7, 0};
-static unsigned int serial_id[] = {1, 1, 2, 1, 0};
-static unsigned int issurer_id[] = {1, 1, 4, 0};
-static unsigned int owner_id[] = {1, 1, 6, 0};
-static unsigned int validity_id[] = {1, 1, 5, 0};
-static unsigned int algorithm_id[] = {1, 1, 3, 0};
-static unsigned int sign_id[] = {1, 3, 2, 1, 0};
-static unsigned int priv_id[] = {1, 4, 0};
-static unsigned int priv_der_id[] = {1, 3, 1, 0};
-static unsigned int ecc_priv_id[] = {1, 2, 0};
-
-static unsigned char country_oid[] = {0x55, 0x04, 0x06, 0x00};
-static unsigned char state_oid[] = {0x55, 0x04, 0x08, 0x00};
-static unsigned char location_oid[] = {0x55, 0x04, 0x07, 0x00};
-static unsigned char entity_oid[] = {0x55, 0x04, 0x0A, 0x00};
-static unsigned char subject_oid[] = {0x55, 0x04, 0x03, 0x00};
-
-static unsigned char TLS_RSA_SIGN_RSA_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x00};
-static unsigned char TLS_RSA_SIGN_MD5_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04, 0x00};
-static unsigned char TLS_RSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05, 0x00};
-static unsigned char TLS_RSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B, 0x00};
-static unsigned char TLS_RSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C, 0x00};
-static unsigned char TLS_RSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D, 0x00};
-
-static unsigned char TLS_ECDSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x01, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA224_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04, 0x05, 0x00, 0x00};
-
-static unsigned char TLS_EC_PUBLIC_KEY_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01, 0x00};
-
-static unsigned char TLS_EC_prime192v1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x01, 0x00};
-static unsigned char TLS_EC_prime192v2_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x02, 0x00};
-static unsigned char TLS_EC_prime192v3_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x03, 0x00};
-static unsigned char TLS_EC_prime239v1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x04, 0x00};
-static unsigned char TLS_EC_prime239v2_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x05, 0x00};
-static unsigned char TLS_EC_prime239v3_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x06, 0x00};
-static unsigned char TLS_EC_prime256v1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07, 0x00};
-
-#define TLS_EC_secp256r1_OID    TLS_EC_prime256v1_OID
-static unsigned char TLS_EC_secp224r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x21, 0x00};
-static unsigned char TLS_EC_secp384r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x22, 0x00};
-static unsigned char TLS_EC_secp521r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x23, 0x00};
-
-struct TLSCertificate *asn1_parse(struct TLSContext *context, const unsigned char *buffer, int size, int client_cert);
-int __private_tls_update_hash(struct TLSContext *context, const unsigned char *in, unsigned int len);
-struct TLSPacket *tls_build_finished(struct TLSContext *context);
-unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen);
-int tls_random(unsigned char *key, int len);
-void tls_destroy_packet(struct TLSPacket *packet);
-struct TLSPacket *tls_build_hello(struct TLSContext *context);
-struct TLSPacket *tls_build_certificate(struct TLSContext *context);
-struct TLSPacket *tls_build_done(struct TLSContext *context);
-struct TLSPacket *tls_build_alert(struct TLSContext *context, char critical, unsigned char code);
-struct TLSPacket *tls_build_change_cipher_spec(struct TLSContext *context);
-struct TLSPacket *tls_build_verify_request(struct TLSContext *context);
-int __private_tls_crypto_create(struct TLSContext *context, int key_length, int iv_length, unsigned char *localkey, unsigned char *localiv, unsigned char *remotekey, unsigned char *remoteiv);
-int __private_tls_get_hash(struct TLSContext *context, unsigned char *hout);
-int __private_tls_build_random(struct TLSPacket *packet);
-unsigned int __private_tls_mac_length(struct TLSContext *context);
-#ifdef TLS_FORWARD_SECRECY
-void __private_tls_dhe_free(struct TLSContext *context);
-void __private_tls_ecc_dhe_free(struct TLSContext *context);
-void __private_tls_dh_clear_key(DHKey *key);
-#endif
-
 #ifdef TLS_WITH_CHACHA20_POLY1305
 #define CHACHA_MINKEYLEN 	16
 #define CHACHA_NONCELEN		8
@@ -928,6 +523,423 @@ poly1305_donna_finish:
 	U32TO8_LE(&out[ 8], f2); f3 += (f2 >> 32);
 	U32TO8_LE(&out[12], f3);
 }
+#endif
+
+typedef enum {
+    KEA_dhe_dss,
+    KEA_dhe_rsa,
+    KEA_dh_anon,
+    KEA_rsa,
+    KEA_dh_dss,
+    KEA_dh_rsa,
+    KEA_ec_diffie_hellman
+} KeyExchangeAlgorithm;
+
+typedef enum {
+    rsa_sign = 1,
+    dss_sign = 2,
+    rsa_fixed_dh = 3,
+    dss_fixed_dh = 4,
+    rsa_ephemeral_dh_RESERVED = 5,
+    dss_ephemeral_dh_RESERVED = 6,
+    fortezza_dms_RESERVED = 20,
+    ecdsa_sign = 64,
+    rsa_fixed_ecdh = 65,
+    ecdsa_fixed_ecdh = 66
+} TLSClientCertificateType;
+
+typedef enum {
+    none = 0,
+    md5 = 1,
+    sha1 = 2,
+    sha224 = 3,
+    sha256 = 4,
+    sha384 = 5,
+    sha512 = 6,
+    __md5_sha1 = 255
+} TLSHashAlgorithm;
+
+typedef enum {
+    anonymous = 0,
+    rsa = 1,
+    dsa = 2,
+    ecdsa = 3
+} TLSSignatureAlgorithm;
+
+struct TLSCertificate {
+    unsigned short version;
+    unsigned int algorithm;
+    unsigned int key_algorithm;
+    unsigned int ec_algorithm;
+    unsigned char *exponent;
+    unsigned int exponent_len;
+    unsigned char *pk;
+    unsigned int pk_len;
+    unsigned char *priv;
+    unsigned int priv_len;
+    unsigned char *issuer_country;
+    unsigned char *issuer_state;
+    unsigned char *issuer_location;
+    unsigned char *issuer_entity;
+    unsigned char *issuer_subject;
+    unsigned char *not_before;
+    unsigned char *not_after;
+    unsigned char *country;
+    unsigned char *state;
+    unsigned char *location;
+    unsigned char *entity;
+    unsigned char *subject;
+    unsigned char *serial_number;
+    unsigned int serial_len;
+    unsigned char *sign_key;
+    unsigned int sign_len;
+    unsigned char *fingerprint;
+    unsigned char *der_bytes;
+    unsigned int der_len;
+    unsigned char *bytes;
+    unsigned int len;
+};
+
+typedef struct {
+    union {
+        symmetric_CBC aes_local;
+        gcm_state aes_gcm_local;
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        chacha_ctx chacha_local;
+#endif
+    };
+    union {
+        symmetric_CBC aes_remote;
+        gcm_state aes_gcm_remote;
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        chacha_ctx chacha_remote;
+#endif
+    };
+    union {
+        unsigned char local_mac[__TLS_MAX_MAC_SIZE];
+        unsigned char local_aead_iv[__TLS_AES_GCM_IV_LENGTH];
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        unsigned char local_nonce[CHACHA_NONCELEN];
+#endif
+    };
+    union {
+        unsigned char remote_aead_iv[__TLS_AES_GCM_IV_LENGTH];
+        unsigned char remote_mac[__TLS_MAX_MAC_SIZE];
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        unsigned char remote_nonce[CHACHA_NONCELEN];
+#endif
+    };
+    unsigned char created;
+} TLSCipher;
+
+typedef struct {
+    hash_state hash;
+#ifdef TLS_LEGACY_SUPPORT
+    hash_state hash2;
+#endif
+    unsigned char created;
+} TLSHash;
+
+#ifdef TLS_FORWARD_SECRECY
+#define mp_init(a)                           ltc_mp.init(a)
+#define mp_init_multi                        ltc_init_multi
+#define mp_clear(a)                          ltc_mp.deinit(a)
+#define mp_clear_multi                       ltc_deinit_multi
+#define mp_count_bits(a)                     ltc_mp.count_bits(a)
+#define mp_read_radix(a, b, c)               ltc_mp.read_radix(a, b, c)
+#define mp_unsigned_bin_size(a)              ltc_mp.unsigned_size(a)
+#define mp_to_unsigned_bin(a, b)             ltc_mp.unsigned_write(a, b)
+#define mp_read_unsigned_bin(a, b, c)        ltc_mp.unsigned_read(a, b, c)
+#define mp_exptmod(a, b, c, d)               ltc_mp.exptmod(a, b, c, d)
+#define mp_add(a, b, c)                      ltc_mp.add(a, b, c)
+#define mp_mul(a, b, c)                      ltc_mp.mul(a, b, c)
+#define mp_cmp(a, b)                         ltc_mp.compare(a, b)
+#define mp_cmp_d(a, b)                       ltc_mp.compare_d(a, b)
+#define mp_sqr(a, b)                         ltc_mp.sqr(a, b)
+#define mp_mod(a, b, c)                      ltc_mp.mpdiv(a, b, NULL, c)
+#define mp_sub(a, b, c)                      ltc_mp.sub(a, b, c)
+#define mp_set(a, b)                         ltc_mp.set_int(a, b)
+
+typedef struct {
+    void *x;
+    void *y;
+    void *p;
+    void *g;
+} DHKey;
+
+struct ECCCurveParameters {
+    int size;
+    int iana;
+    const char *name;
+    const char *P;
+    const char *A;
+    const char *B;
+    const char *Gx;
+    const char *Gy;
+    const char *order;
+    ltc_ecc_set_type dp;
+};
+
+static struct ECCCurveParameters secp192r1 = {
+    24,
+    19,
+    "secp192r1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFF", // P
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFC", // A
+    "64210519E59C80E70FA7E9AB72243049FEB8DEECC146B9B1", // B
+    "188DA80EB03090F67CBF20EB43A18800F4FF0AFD82FF1012", // Gx
+    "07192B95FFC8DA78631011ED6B24CDD573F977A11E794811", // Gy
+    "FFFFFFFFFFFFFFFFFFFFFFFF99DEF836146BC9B1B4D22831"  // order (n)
+};
+
+
+static struct ECCCurveParameters secp224r1 = {
+    28,
+    21,
+    "secp224r1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000000000000000001", // P
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFE", // A
+    "B4050A850C04B3ABF54132565044B0B7D7BFD8BA270B39432355FFB4", // B
+    "B70E0CBD6BB4BF7F321390B94A03C1D356C21122343280D6115C1D21", // Gx
+    "BD376388B5F723FB4C22DFE6CD4375A05A07476444D5819985007E34", // Gy
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFF16A2E0B8F03E13DD29455C5C2A3D"  // order (n)
+};
+
+static struct ECCCurveParameters secp224k1 = {
+    28,
+    20,
+    "secp224k1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFE56D", // P
+    "00000000000000000000000000000000000000000000000000000000", // A
+    "00000000000000000000000000000000000000000000000000000005", // B
+    "A1455B334DF099DF30FC28A169A467E9E47075A90F7E650EB6B7A45C", // Gx
+    "7E089FED7FBA344282CAFBD6F7E319F7C0B0BD59E2CA4BDB556D61A5", // Gy
+    "0000000000000000000000000001DCE8D2EC6184CAF0A971769FB1F7"  // order (n)
+};
+
+static struct ECCCurveParameters secp256r1 = {
+    32,
+    23,
+    "secp256r1",
+    "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", // P
+    "FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC", // A
+    "5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B", // B
+    "6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296", // Gx
+    "4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5", // Gy
+    "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551"  // order (n)
+};
+
+static struct ECCCurveParameters secp256k1 = {
+    32,
+    22,
+    "secp256k1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", // P
+    "0000000000000000000000000000000000000000000000000000000000000000", // A
+    "0000000000000000000000000000000000000000000000000000000000000007", // B
+    "79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", // Gx
+    "483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", // Gy
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"  // order (n)
+};
+
+static struct ECCCurveParameters secp384r1 = {
+    48,
+    24,
+    "secp384r1",
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFF", // P
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFF0000000000000000FFFFFFFC", // A
+    "B3312FA7E23EE7E4988E056BE3F82D19181D9C6EFE8141120314088F5013875AC656398D8A2ED19D2A85C8EDD3EC2AEF", // B
+    "AA87CA22BE8B05378EB1C71EF320AD746E1D3B628BA79B9859F741E082542A385502F25DBF55296C3A545E3872760AB7", // Gx
+    "3617DE4A96262C6F5D9E98BF9292DC29F8F41DBD289A147CE9DA3113B5F0B8C00A60B1CE1D7E819D7A431D7C90EA0E5F", // Gy
+    "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC7634D81F4372DDF581A0DB248B0A77AECEC196ACCC52973"  // order (n)
+};
+
+static struct ECCCurveParameters secp521r1 = {
+    66,
+    25,
+    "secp521r1",
+    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", // P
+    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFC", // A
+    "0051953EB9618E1C9A1F929A21A0B68540EEA2DA725B99B315F3B8B489918EF109E156193951EC7E937B1652C0BD3BB1BF073573DF883D2C34F1EF451FD46B503F00", // B
+    "00C6858E06B70404E9CD9E3ECB662395B4429C648139053FB521F828AF606B4D3DBAA14B5E77EFE75928FE1DC127A2FFA8DE3348B3C1856A429BF97E7E31C2E5BD66", // Gx
+    "011839296A789A3BC0045C8A5FB42C7D1BD998F54449579B446817AFBD17273E662C97EE72995EF42640C550B9013FAD0761353C7086A272C24088BE94769FD16650", // Gy
+    "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
+};
+
+static struct ECCCurveParameters *default_curve = &secp256r1;
+
+void init_curve(struct ECCCurveParameters *curve) {
+    curve->dp.size = curve->size;
+    curve->dp.name = (char *)curve->name;
+    curve->dp.B = (char *)curve->B;
+    curve->dp.prime = (char *)curve->P;
+    curve->dp.Gx = (char *)curve->Gx;
+    curve->dp.Gy = (char *)curve->Gy;
+    curve->dp.order = (char *)curve->order;
+}
+
+void init_curves() {
+    init_curve(&secp192r1);
+    init_curve(&secp224r1);
+    init_curve(&secp224k1);
+    init_curve(&secp256r1);
+    init_curve(&secp256k1);
+    init_curve(&secp384r1);
+    init_curve(&secp521r1);
+}
+#endif
+
+struct TLSContext {
+    unsigned char remote_random[__TLS_CLIENT_RANDOM_SIZE];
+    unsigned char local_random[__TLS_SERVER_RANDOM_SIZE];
+    unsigned char session[__TLS_MAX_SESSION_ID];
+    unsigned char session_size;
+    unsigned short cipher;
+    unsigned short version;
+    unsigned char is_server;
+    struct TLSCertificate **certificates;
+    struct TLSCertificate *private_key;
+#ifdef TLS_ECDSA_SUPPORTED
+    struct TLSCertificate *ec_private_key;
+#endif
+#ifdef TLS_FORWARD_SECRECY
+    DHKey *dhe;
+    ecc_key *ecc_dhe;
+    char *default_dhe_p;
+    char *default_dhe_g;
+    const struct ECCCurveParameters *curve;
+#endif
+    struct TLSCertificate **client_certificates;
+    unsigned int certificates_count;
+    unsigned int client_certificates_count;
+    unsigned char *master_key;
+    unsigned int master_key_len;
+    unsigned char *premaster_key;
+    unsigned int premaster_key_len;
+    unsigned char cipher_spec_set;
+    TLSCipher crypto;
+    TLSHash *handshake_hash;
+    
+    unsigned char *message_buffer;
+    unsigned int message_buffer_len;
+    uint64_t remote_sequence_number;
+    uint64_t local_sequence_number;
+    
+    unsigned char connection_status;
+    unsigned char critical_error;
+    unsigned char error_code;
+    
+    unsigned char *tls_buffer;
+    unsigned int tls_buffer_len;
+    
+    unsigned char *application_buffer;
+    unsigned int application_buffer_len;
+    unsigned char is_child;
+    unsigned char exportable;
+    unsigned char *exportable_keys;
+    unsigned char exportable_size;
+    char *sni;
+    unsigned char request_client_certificate;
+    unsigned char dtls;
+    unsigned short dtls_epoch_local;
+    unsigned short dtls_epoch_remote;
+    unsigned char *dtls_cookie;
+    unsigned short dtls_cookie_len;
+    unsigned char *cached_handshake;
+    unsigned int cached_handshake_len;
+    unsigned char client_verified;
+    // handshake messages flags
+    unsigned char hs_messages[11];
+    void *user_data;
+    struct TLSCertificate **root_certificates;
+    unsigned int root_count;
+#ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
+    unsigned char *verify_data;
+    unsigned char verify_len;
+#endif
+};
+
+struct TLSPacket {
+    unsigned char *buf;
+    unsigned int len;
+    unsigned int size;
+    unsigned char broken;
+    struct TLSContext *context;
+};
+
+#ifdef SSL_COMPATIBLE_INTERFACE
+#ifdef _WIN32
+#include <winsock2.h>
+#else
+#include <sys/socket.h>
+#endif
+#endif
+
+static unsigned int version_id[] = {1, 1, 1, 0};
+static unsigned int pk_id[] = {1, 1, 7, 0};
+static unsigned int serial_id[] = {1, 1, 2, 1, 0};
+static unsigned int issurer_id[] = {1, 1, 4, 0};
+static unsigned int owner_id[] = {1, 1, 6, 0};
+static unsigned int validity_id[] = {1, 1, 5, 0};
+static unsigned int algorithm_id[] = {1, 1, 3, 0};
+static unsigned int sign_id[] = {1, 3, 2, 1, 0};
+static unsigned int priv_id[] = {1, 4, 0};
+static unsigned int priv_der_id[] = {1, 3, 1, 0};
+static unsigned int ecc_priv_id[] = {1, 2, 0};
+
+static unsigned char country_oid[] = {0x55, 0x04, 0x06, 0x00};
+static unsigned char state_oid[] = {0x55, 0x04, 0x08, 0x00};
+static unsigned char location_oid[] = {0x55, 0x04, 0x07, 0x00};
+static unsigned char entity_oid[] = {0x55, 0x04, 0x0A, 0x00};
+static unsigned char subject_oid[] = {0x55, 0x04, 0x03, 0x00};
+
+static unsigned char TLS_RSA_SIGN_RSA_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x00};
+static unsigned char TLS_RSA_SIGN_MD5_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04, 0x00};
+static unsigned char TLS_RSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05, 0x00};
+static unsigned char TLS_RSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B, 0x00};
+static unsigned char TLS_RSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C, 0x00};
+static unsigned char TLS_RSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D, 0x00};
+
+static unsigned char TLS_ECDSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x01, 0x05, 0x00, 0x00};
+static unsigned char TLS_ECDSA_SIGN_SHA224_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01, 0x05, 0x00, 0x00};
+static unsigned char TLS_ECDSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x05, 0x00, 0x00};
+static unsigned char TLS_ECDSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03, 0x05, 0x00, 0x00};
+static unsigned char TLS_ECDSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04, 0x05, 0x00, 0x00};
+
+static unsigned char TLS_EC_PUBLIC_KEY_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01, 0x00};
+
+static unsigned char TLS_EC_prime192v1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x01, 0x00};
+static unsigned char TLS_EC_prime192v2_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x02, 0x00};
+static unsigned char TLS_EC_prime192v3_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x03, 0x00};
+static unsigned char TLS_EC_prime239v1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x04, 0x00};
+static unsigned char TLS_EC_prime239v2_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x05, 0x00};
+static unsigned char TLS_EC_prime239v3_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x06, 0x00};
+static unsigned char TLS_EC_prime256v1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07, 0x00};
+
+#define TLS_EC_secp256r1_OID    TLS_EC_prime256v1_OID
+static unsigned char TLS_EC_secp224r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x21, 0x00};
+static unsigned char TLS_EC_secp384r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x22, 0x00};
+static unsigned char TLS_EC_secp521r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x23, 0x00};
+
+struct TLSCertificate *asn1_parse(struct TLSContext *context, const unsigned char *buffer, int size, int client_cert);
+int __private_tls_update_hash(struct TLSContext *context, const unsigned char *in, unsigned int len);
+struct TLSPacket *tls_build_finished(struct TLSContext *context);
+unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen);
+int tls_random(unsigned char *key, int len);
+void tls_destroy_packet(struct TLSPacket *packet);
+struct TLSPacket *tls_build_hello(struct TLSContext *context);
+struct TLSPacket *tls_build_certificate(struct TLSContext *context);
+struct TLSPacket *tls_build_done(struct TLSContext *context);
+struct TLSPacket *tls_build_alert(struct TLSContext *context, char critical, unsigned char code);
+struct TLSPacket *tls_build_change_cipher_spec(struct TLSContext *context);
+struct TLSPacket *tls_build_verify_request(struct TLSContext *context);
+int __private_tls_crypto_create(struct TLSContext *context, int key_length, int iv_length, unsigned char *localkey, unsigned char *localiv, unsigned char *remotekey, unsigned char *remoteiv);
+int __private_tls_get_hash(struct TLSContext *context, unsigned char *hout);
+int __private_tls_build_random(struct TLSPacket *packet);
+unsigned int __private_tls_mac_length(struct TLSContext *context);
+#ifdef TLS_FORWARD_SECRECY
+void __private_tls_dhe_free(struct TLSContext *context);
+void __private_tls_ecc_dhe_free(struct TLSContext *context);
+void __private_tls_dh_clear_key(DHKey *key);
 #endif
 
 static unsigned char dependecies_loaded = 0;
