@@ -2049,6 +2049,11 @@ int __private_tls_expand_key(struct TLSContext *context) {
     
     int pos = 0;
     int is_aead = __private_tls_is_aead(context);
+#ifdef TLS_WITH_CHACHA20_POLY1305
+    if (is_aead == 2) {
+        iv_length = CHACHA_NONCELEN;
+    } else
+#endif
     if (is_aead)
         iv_length = __TLS_AES_GCM_IV_LENGTH;
     else {
@@ -2083,6 +2088,12 @@ int __private_tls_expand_key(struct TLSContext *context) {
     DEBUG_DUMP_HEX_LABEL("SERVER MAC KEY", context->is_server ? context->crypto.local_mac : context->crypto.remote_mac, mac_length)
     
     if (context->is_server) {
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        if (is_aead == 2) {
+            memcpy(context->crypto.remote_nonce, clientiv, iv_length);
+            memcpy(context->crypto.local_nonce, serveriv, iv_length);
+        } else
+#endif
         if (is_aead) {
             memcpy(context->crypto.remote_aead_iv, clientiv, iv_length);
             memcpy(context->crypto.local_aead_iv, serveriv, iv_length);
@@ -2090,6 +2101,12 @@ int __private_tls_expand_key(struct TLSContext *context) {
         if (__private_tls_crypto_create(context, key_length, iv_length, serverkey, serveriv, clientkey, clientiv))
             return 0;
     } else {
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        if (is_aead == 2) {
+            memcpy(context->crypto.local_nonce, clientiv, iv_length);
+            memcpy(context->crypto.remote_nonce, serveriv, iv_length);
+        } else
+#endif
         if (is_aead) {
             memcpy(context->crypto.local_aead_iv, clientiv, iv_length);
             memcpy(context->crypto.remote_aead_iv, serveriv, iv_length);
