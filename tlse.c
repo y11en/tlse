@@ -2809,12 +2809,11 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
     DEBUG_PRINT("Using cipher ID: %x\n", (int)context->cipher);
 #ifdef TLS_WITH_CHACHA20_POLY1305
     if (is_aead == 2) {
-        unsigned int sequence_number = 1;
         chacha_keysetup(&context->crypto.chacha_local, localkey, key_length * 8);
-        chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, localiv, (unsigned char *)&sequence_number);
+        chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, localiv, NULL);
 
         chacha_keysetup(&context->crypto.chacha_remote, remotekey, key_length * 8);
-        chacha_ivsetup_96bitnonce(&context->crypto.chacha_remote, remoteiv, (unsigned char *)&sequence_number);
+        chacha_ivsetup_96bitnonce(&context->crypto.chacha_remote, remoteiv, NULL);
 
         context->crypto.created = 3;
     } else
@@ -5589,7 +5588,6 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
 #ifdef TLS_WITH_CHACHA20_POLY1305
         } else
         if (context->crypto.created == 3) {
-    	    // to do
             int pt_length = length - POLY1305_TAGLEN;
             if (pt_length < 0) {
                 DEBUG_PRINT("Invalid packet length");
