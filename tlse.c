@@ -728,14 +728,14 @@ typedef struct {
         unsigned char local_mac[__TLS_MAX_MAC_SIZE];
         unsigned char local_aead_iv[__TLS_AES_GCM_IV_LENGTH];
 #ifdef TLS_WITH_CHACHA20_POLY1305
-        unsigned char local_nonce[CHACHA_NONCELEN];
+        unsigned char local_nonce[__TLS_CHACHA20_IV_LENGTH];
 #endif
     };
     union {
         unsigned char remote_aead_iv[__TLS_AES_GCM_IV_LENGTH];
         unsigned char remote_mac[__TLS_MAX_MAC_SIZE];
 #ifdef TLS_WITH_CHACHA20_POLY1305
-        unsigned char remote_nonce[CHACHA_NONCELEN];
+        unsigned char remote_nonce[__TLS_CHACHA20_IV_LENGTH];
 #endif
     };
     unsigned char created;
@@ -2809,11 +2809,12 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
     DEBUG_PRINT("Using cipher ID: %x\n", (int)context->cipher);
 #ifdef TLS_WITH_CHACHA20_POLY1305
     if (is_aead == 2) {
+        unsigned int sequence_number = 1;
         chacha_keysetup(&context->crypto.chacha_local, localkey, key_length * 8);
-        chacha_ivsetup(&context->crypto.chacha_local, localiv, NULL);
+        chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, localiv, (unsigned char *)&sequence_number);
 
         chacha_keysetup(&context->crypto.chacha_remote, remotekey, key_length * 8);
-        chacha_ivsetup(&context->crypto.chacha_local, remoteiv, NULL);
+        chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, remoteiv, (unsigned char *)&sequence_number);
 
         context->crypto.created = 3;
     } else
@@ -5588,7 +5589,19 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
 #ifdef TLS_WITH_CHACHA20_POLY1305
         } else
         if (context->crypto.created == 3) {
-            // to do
+    	    // to do
+            int pt_length = length - POLY1305_TAGLEN;
+            if (pt_length < 0) {
+                DEBUG_PRINT("Invalid packet length");
+                TLS_FREE(pt);
+                __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
+                return TLS_BROKEN_PACKET;
+            }
+            chacha_encrypt_bytes(&context->crypto.chacha_remote, buf + header_size, pt, pt_length);
+            DEBUG_DUMP_HEX_LABEL("decrypted", pt, pt_length);
+            DEBUG_DUMP_HEX_LABEL("tag", buf + header_size + pt_length, POLY1305_TAGLEN);
+            ptr = pt;
+            length = pt_length;
 #endif
         } else {
             int err = __private_tls_crypto_decrypt(context, buf + header_size, pt, length);
@@ -6657,9 +6670,9 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
     } else
     if (packet->context->crypto.created == 3) {
         // ChaCha20
-        tls_packet_uint8(packet, CHACHA_NONCELEN);
-        tls_packet_append(packet, context->crypto.local_nonce, CHACHA_NONCELEN);
-        tls_packet_append(packet, context->crypto.remote_nonce, CHACHA_NONCELEN);
+        tls_packet_uint8(packet, __TLS_CHACHA20_IV_LENGTH);
+        tls_packet_append(packet, context->crypto.local_nonce, __TLS_CHACHA20_IV_LENGTH);
+        tls_packet_append(packet, context->crypto.remote_nonce, __TLS_CHACHA20_IV_LENGTH);
 #endif
     } else {
         unsigned char iv[__TLS_AES_IV_LENGTH];
@@ -6785,8 +6798,8 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
 #ifdef TLS_WITH_CHACHA20_POLY1305
         if (is_aead == 2) {
             // ChaCha20
-            if (iv_len > CHACHA_NONCELEN)
-                iv_len = CHACHA_NONCELEN;
+            if (iv_len > __TLS_CHACHA20_IV_LENGTH)
+                iv_len = __TLS_CHACHA20_IV_LENGTH;
             memcpy(context->crypto.local_nonce, local_iv, iv_len);
             memcpy(context->crypto.remote_nonce, remote_iv, iv_len);
         } else
