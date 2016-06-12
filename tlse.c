@@ -122,9 +122,14 @@
 #define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { DEBUG_PRINT("* UNEXPECTED MESSAGE\n"); payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
 
 #ifdef TLS_WITH_CHACHA20_POLY1305
+// ChaCha implementation by D. J. Bernstein
+// Public domain.
+
 #define CHACHA_MINKEYLEN 	16
 #define CHACHA_NONCELEN		8
+#define CHACHA_NONCELEN_96	12
 #define CHACHA_CTRLEN		8
+#define CHACHA_CTRLEN_96	4
 #define CHACHA_STATELEN		(CHACHA_NONCELEN+CHACHA_CTRLEN)
 #define CHACHA_BLOCKLEN		64
 
@@ -145,10 +150,11 @@ struct chacha_ctx {
 	uint8_t unused;
 };
 
-static inline void chacha_keysetup(struct chacha_ctx *x, const u_char *k, u_int kbits) __attribute__((__bounded__(__minbytes__, 2, CHACHA_MINKEYLEN)));
-static inline void chacha_ivsetup(struct chacha_ctx *x, const u_char *iv, const u_char *ctr) __attribute__((__bounded__(__minbytes__, 2, CHACHA_NONCELEN))) __attribute__((__bounded__(__minbytes__, 3, CHACHA_CTRLEN)));
-static inline void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m, u_char *c, u_int bytes) __attribute__((__bounded__(__buffer__, 2, 4))) __attribute__((__bounded__(__buffer__, 3, 4)));
-void poly1305_auth(u_char out[POLY1305_TAGLEN], const u_char *m, size_t inlen, const u_char key[POLY1305_KEYLEN]) __attribute__((__bounded__(__minbytes__, 1, POLY1305_TAGLEN))) __attribute__((__bounded__(__buffer__, 2, 3))) __attribute__((__bounded__(__minbytes__, 4, POLY1305_KEYLEN)));
+static inline void chacha_keysetup(struct chacha_ctx *x, const u_char *k, u_int kbits);
+static inline void chacha_ivsetup(struct chacha_ctx *x, const u_char *iv, const u_char *ctr);
+static inline void chacha_ivsetup_96bitnonce(struct chacha_ctx *x, const u_char *iv, const u_char *ctr);
+static inline void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m, u_char *c, u_int bytes);
+void poly1305_auth(u_char out[POLY1305_TAGLEN], const u_char *m, size_t inlen, const u_char key[POLY1305_KEYLEN]);
 
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -220,6 +226,13 @@ static inline void chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter
 	x->input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
 	x->input[14] = U8TO32_LITTLE(iv + 0);
 	x->input[15] = U8TO32_LITTLE(iv + 4);
+}
+
+static inline void chacha_ivsetup_96bitnonce(chacha_ctx *x, const u8 *iv, const u8 *counter) {
+	x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
+	x->input[13] = U8TO32_LITTLE(iv + 0);
+	x->input[14] = U8TO32_LITTLE(iv + 4);
+	x->input[15] = U8TO32_LITTLE(iv + 8);
 }
 
 static inline void chacha_encrypt_bytes(chacha_ctx *x, const u8 *m, u8 *c, u32 bytes) {
@@ -378,6 +391,62 @@ static inline void chacha_encrypt_bytes(chacha_ctx *x, const u8 *m, u8 *c, u32 b
 		c += 64;
 		m += 64;
 	}
+}
+
+static inline void chacha20_block(chacha_ctx *x, unsigned char *c) {
+	u_int i;
+
+    unsigned int state[16];
+    for (i = 0; i < 16; i++)
+        state[i] = x->input[i];
+	for (i = 20; i > 0; i -= 2) {
+		QUARTERROUND(state[0], state[4], state[8], state[12])
+		QUARTERROUND(state[1], state[5], state[9], state[13])
+		QUARTERROUND(state[2], state[6], state[10], state[14])
+		QUARTERROUND(state[3], state[7], state[11], state[15])
+		QUARTERROUND(state[0], state[5], state[10], state[15])
+		QUARTERROUND(state[1], state[6], state[11], state[12])
+		QUARTERROUND(state[2], state[7], state[8], state[13])
+		QUARTERROUND(state[3], state[4], state[9], state[14])
+	}
+
+    for (i = 0; i < 16; i++)
+        x->input[i] = PLUS(x->input[i], state[i]);
+
+	U32TO8_LITTLE(c + 0, x->input[0]);
+	U32TO8_LITTLE(c + 4, x->input[1]);
+	U32TO8_LITTLE(c + 8, x->input[2]);
+	U32TO8_LITTLE(c + 12, x->input[3]);
+	U32TO8_LITTLE(c + 16, x->input[4]);
+	U32TO8_LITTLE(c + 20, x->input[5]);
+	U32TO8_LITTLE(c + 24, x->input[6]);
+	U32TO8_LITTLE(c + 28, x->input[7]);
+	U32TO8_LITTLE(c + 32, x->input[8]);
+	U32TO8_LITTLE(c + 36, x->input[9]);
+	U32TO8_LITTLE(c + 40, x->input[10]);
+	U32TO8_LITTLE(c + 44, x->input[11]);
+	U32TO8_LITTLE(c + 48, x->input[12]);
+	U32TO8_LITTLE(c + 52, x->input[13]);
+	U32TO8_LITTLE(c + 56, x->input[14]);
+	U32TO8_LITTLE(c + 60, x->input[15]);
+}
+
+int poly1305_generate_key(unsigned char *key256, unsigned char *nonce, unsigned int noncelen, unsigned char *poly_key) {
+    struct chacha_ctx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    chacha_keysetup(&ctx, key256, 256);
+    switch (noncelen) {
+        case 8:
+            chacha_ivsetup(&ctx, nonce, NULL);
+            break;
+        case 12:
+            chacha_ivsetup_96bitnonce(&ctx, nonce, NULL);
+            break;
+        default:
+            return -1;
+    }
+    chacha20_block(&ctx, poly_key);
+    return 0;
 }
 
 #define mul32x32_64(a,b) ((uint64_t)(a) * (b))
