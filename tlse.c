@@ -122,6 +122,8 @@
 #define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { DEBUG_PRINT("* UNEXPECTED MESSAGE\n"); payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
 
 #ifdef TLS_WITH_CHACHA20_POLY1305
+#define __TLS_CHACHA20_IV_LENGTH    12
+
 // ChaCha implementation by D. J. Bernstein
 // Public domain.
 
@@ -2161,7 +2163,7 @@ int __private_tls_expand_key(struct TLSContext *context) {
     int is_aead = __private_tls_is_aead(context);
 #ifdef TLS_WITH_CHACHA20_POLY1305
     if (is_aead == 2) {
-        iv_length = CHACHA_NONCELEN;
+        iv_length = __TLS_CHACHA20_IV_LENGTH;
     } else
 #endif
     if (is_aead)
