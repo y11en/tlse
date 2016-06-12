@@ -2814,7 +2814,7 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
         chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, localiv, (unsigned char *)&sequence_number);
 
         chacha_keysetup(&context->crypto.chacha_remote, remotekey, key_length * 8);
-        chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, remoteiv, (unsigned char *)&sequence_number);
+        chacha_ivsetup_96bitnonce(&context->crypto.chacha_remote, remoteiv, (unsigned char *)&sequence_number);
 
         context->crypto.created = 3;
     } else
