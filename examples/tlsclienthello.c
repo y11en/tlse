@@ -94,7 +94,7 @@ int main(int argc, char *argv[]) {
         tls_consume_stream(context, client_message, read_size, validate_certificate);
         send_pending(sockfd, context);
         if (tls_established(context)) {
-            tls_write(context, "GET /\r\n\r\n", 7);
+            tls_write(context, "GET / HTTP/1.1\r\n\r\n", 7);
             send_pending(sockfd, context);
 
             unsigned char read_buffer[0xFFFF];
