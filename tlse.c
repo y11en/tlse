@@ -6684,8 +6684,8 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
             tls_packet_uint32(packet, context->crypto.chacha_local.input[i]);
         for (i = 0; i < 16; i++)
             tls_packet_uint32(packet, context->crypto.chacha_remote.input[i]);
-        // tls_packet_append(packet, context->crypto.chacha_local.ks, CHACHA_BLOCKLEN);
-        // tls_packet_append(packet, context->crypto.chacha_remote.ks, CHACHA_BLOCKLEN);
+        tls_packet_append(packet, context->crypto.chacha_local.ks, CHACHA_BLOCKLEN);
+        tls_packet_append(packet, context->crypto.chacha_remote.ks, CHACHA_BLOCKLEN);
 #endif
     } else {
         unsigned char mac_length = (unsigned char)__private_tls_mac_length(context);
@@ -6827,7 +6827,7 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
         if (is_aead == 2) {
             // ChaCha20
             unsigned int i;
-            TLS_IMPORT_CHECK_SIZE(buf_pos, 128 /*+ CHACHA_BLOCKLEN * 2*/, buf_len)
+            TLS_IMPORT_CHECK_SIZE(buf_pos, 128 + CHACHA_BLOCKLEN * 2, buf_len)
             for (i = 0; i < 16; i++) {
                 context->crypto.chacha_local.input[i] = ntohl(*(unsigned int *)&buffer[buf_pos]);
                 buf_pos += sizeof(unsigned int);
@@ -6836,10 +6836,10 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
                 context->crypto.chacha_local.input[i] = ntohl(*(unsigned int *)&buffer[buf_pos]);
                 buf_pos += sizeof(unsigned int);
             }
-            // memcpy(context->crypto.chacha_local.ks, &buffer[buf_pos], CHACHA_BLOCKLEN);
-            // buf_pos += CHACHA_BLOCKLEN;
-            // memcpy(context->crypto.chacha_remote.ks, &buffer[buf_pos], CHACHA_BLOCKLEN);
-            // buf_pos += CHACHA_BLOCKLEN;
+            memcpy(context->crypto.chacha_local.ks, &buffer[buf_pos], CHACHA_BLOCKLEN);
+            buf_pos += CHACHA_BLOCKLEN;
+            memcpy(context->crypto.chacha_remote.ks, &buffer[buf_pos], CHACHA_BLOCKLEN);
+            buf_pos += CHACHA_BLOCKLEN;
         }
 #endif
         
