@@ -154,7 +154,8 @@ static inline void chacha_keysetup(struct chacha_ctx *x, const u_char *k, u_int 
 static inline void chacha_ivsetup(struct chacha_ctx *x, const u_char *iv, const u_char *ctr);
 static inline void chacha_ivsetup_96bitnonce(struct chacha_ctx *x, const u_char *iv, const u_char *ctr);
 static inline void chacha_encrypt_bytes(struct chacha_ctx *x, const u_char *m, u_char *c, u_int bytes);
-void poly1305_auth(u_char out[POLY1305_TAGLEN], const u_char *m, size_t inlen, const u_char key[POLY1305_KEYLEN]);
+static void poly1305_auth(u_char out[POLY1305_TAGLEN], const u_char *m, size_t inlen, const u_char key[POLY1305_KEYLEN]);
+static int poly1305_generate_key(unsigned char *key256, unsigned char *nonce, unsigned int noncelen, unsigned char *poly_key, unsigned int counter);
 
 typedef unsigned char u8;
 typedef unsigned int u32;
@@ -431,16 +432,18 @@ static inline void chacha20_block(chacha_ctx *x, unsigned char *c) {
 	U32TO8_LITTLE(c + 60, x->input[15]);
 }
 
-int poly1305_generate_key(unsigned char *key256, unsigned char *nonce, unsigned int noncelen, unsigned char *poly_key) {
+int poly1305_generate_key(unsigned char *key256, unsigned char *nonce, unsigned int noncelen, unsigned char *poly_key, unsigned int counter) {
     struct chacha_ctx ctx;
+    uint64_t ctr;
     memset(&ctx, 0, sizeof(ctx));
     chacha_keysetup(&ctx, key256, 256);
     switch (noncelen) {
         case 8:
-            chacha_ivsetup(&ctx, nonce, NULL);
+            ctr = counter;
+            chacha_ivsetup(&ctx, nonce, (unsigned char *)&ctr);
             break;
         case 12:
-            chacha_ivsetup_96bitnonce(&ctx, nonce, NULL);
+            chacha_ivsetup_96bitnonce(&ctx, nonce, (unsigned char *)&counter);
             break;
         default:
             return -1;
@@ -591,6 +594,41 @@ poly1305_donna_finish:
 	U32TO8_LE(&out[ 4], f1); f2 += (f1 >> 32);
 	U32TO8_LE(&out[ 8], f2); f3 += (f2 >> 32);
 	U32TO8_LE(&out[12], f3);
+}
+
+int chacha20_poly1305_aead(struct chacha_ctx *ctx, unsigned char *key256, unsigned char *pt, unsigned int len, unsigned char *aad, unsigned int aad_len, unsigned char *poly_key, unsigned char *out) {
+    unsigned char pad16_buf[POLY1305_MAX_AAD];
+    unsigned char *aad_ref = aad;
+    if (aad_len > POLY1305_MAX_AAD)
+        return -1;
+    int orig_aad_len = aad_len;
+    if (aad_len % 16) {
+        int new_aad_len = (aad_len / 16 + 1) * 16;
+        memcpy(pad16_buf, aad, aad_len);
+        memset(pad16_buf + aad_len, 0, POLY1305_MAX_AAD - aad_len);
+        aad_ref = pad16_buf;
+        aad_len = new_aad_len;
+    }
+    memcpy(out, aad_ref, aad_len);
+    chacha_encrypt_bytes(ctx, pt, out + aad_len, len);
+    int out_len = len + aad_len;
+    int pad_len = 0;
+    int mod_len = len % 16;
+    if (mod_len) {
+        pad_len = 16 - mod_len;
+        memset(out + out_len, 0, pad_len);
+        out_len += pad_len;
+    }
+    U32TO8_LE(&out[out_len], orig_aad_len);
+    out_len += 4;
+    *(int *)&out[out_len] = 0;
+    out_len += 4;
+    U32TO8_LE(&out[out_len], len);
+    out_len += 4;
+    *(int *)&out[out_len] = 0;
+    out_len += 4;
+    poly1305_auth(out + out_len, out, out_len, poly_key);
+    return out_len + POLY1305_TAGLEN;
 }
 #endif
 
