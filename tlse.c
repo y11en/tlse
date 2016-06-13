@@ -2258,16 +2258,20 @@ int __private_tls_compute_key(struct TLSContext *context, unsigned int key_len) 
     }
     
     unsigned char master_secret_label[] = "master secret";
-    unsigned short version = ntohs(*(unsigned short *)context->premaster_key);
-    // this fails for DHE/ECDHE ciphers
-    // if (context->version > version) {
-    //    DEBUG_PRINT("Mismatch protocol version 0x(%x)\n", version);
-    //    return 0;
-    // }
+#ifdef __TLS_CHECK_PREMASTER_KEY
+    if (!tls_cipher_is_ephemeral(context)) {
+        unsigned short version = ntohs(*(unsigned short *)context->premaster_key);
+        // this check is not true for DHE/ECDHE ciphers
+        if (context->version > version) {
+            DEBUG_PRINT("Mismatch protocol version 0x(%x)\n", version);
+            return 0;
+        }
+    }
+#endif
     TLS_FREE(context->master_key);
     context->master_key_len = 0;
     context->master_key = NULL;
-    if (version >= TLS_V10) {
+    if (context->version >= TLS_V10) {
         context->master_key = (unsigned char *)TLS_MALLOC(key_len);
         if (!context->master_key)
             return 0;
