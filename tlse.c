@@ -2814,11 +2814,12 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
     DEBUG_PRINT("Using cipher ID: %x\n", (int)context->cipher);
 #ifdef TLS_WITH_CHACHA20_POLY1305
     if (is_aead == 2) {
+        unsigned int counter = 1;
         chacha_keysetup(&context->crypto.chacha_local, localkey, key_length * 8);
-        chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, localiv, NULL);
+        chacha_ivsetup_96bitnonce(&context->crypto.chacha_local, localiv, &counter);
 
         chacha_keysetup(&context->crypto.chacha_remote, remotekey, key_length * 8);
-        chacha_ivsetup_96bitnonce(&context->crypto.chacha_remote, remoteiv, NULL);
+        chacha_ivsetup_96bitnonce(&context->crypto.chacha_remote, remoteiv, &counter);
 
         context->crypto.created = 3;
     } else
