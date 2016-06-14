@@ -6881,6 +6881,7 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
     } else
     if (context->crypto.created == 3) {
         // ChaCha20
+        tls_packet_uint8(packet, 0);
         unsigned int i;
         for (i = 0; i < 16; i++)
             tls_packet_uint32(packet, context->crypto.chacha_local.input[i]);
@@ -7035,7 +7036,7 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
                 buf_pos += sizeof(unsigned int);
             }
             for (i = 0; i < 16; i++) {
-                context->crypto.chacha_local.input[i] = ntohl(*(unsigned int *)&buffer[buf_pos]);
+                context->crypto.chacha_remote.input[i] = ntohl(*(unsigned int *)&buffer[buf_pos]);
                 buf_pos += sizeof(unsigned int);
             }
             memcpy(context->crypto.chacha_local.ks, &buffer[buf_pos], CHACHA_BLOCKLEN);
