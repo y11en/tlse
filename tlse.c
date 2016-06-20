@@ -4640,6 +4640,11 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     *write_packets = 0;
     *dtls_verified = 0;
     if (context->connection_status != 0) {
+        // ignore multiple hello on dtls
+        if (context->dtls) {
+            DEBUG_PRINT("RETRANSMITTED HELLO MESSAGE RECEIVED\n");
+            return 1;
+        }
         DEBUG_PRINT("UNEXPECTED HELLO MESSAGE\n");
         return TLS_UNEXPECTED_MESSAGE;
     }
@@ -5424,10 +5429,15 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
             case 0x02:
                 CHECK_HANDSHAKE_STATE(context, 2, 1);
                 DEBUG_PRINT(" => SERVER HELLO\n");
-                if (context->is_server)
+                if (context->is_server) {
                     payload_res = TLS_UNEXPECTED_MESSAGE;
-                else
+                } else {
                     payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets, &dtls_cookie_verified);
+                    if ((context->dtls) && (payload_res > 0) && (!dtls_cookie_verified) && (context->connection_status == 1)) {
+                        // wait client hello
+                        context->connection_status = 0;
+                    }
+                }
                 break;
                 // hello verify request
             case 0x03:
