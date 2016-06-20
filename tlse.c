@@ -117,7 +117,7 @@
 // max 1 second sleep
 #define __TLS_MAX_ERROR_SLEEP_uS    1000000
 
-#define VERSION_SUPPORTED(version, err)  if (version < TLS_V10) { DEBUG_PRINT("UNSUPPORTED TLS VERSION %x\n", (int)version); return err; }
+#define VERSION_SUPPORTED(version, err)  if ((version != TLS_V10) && (version != TLS_V11) && (version != TLS_V12) && (version != DTLS_V10) && (version != DTLS_V12)) { DEBUG_PRINT("UNSUPPORTED TLS VERSION %x\n", (int)version); return err; }
 #define CHECK_SIZE(size, buf_size, err)  if (((int)size > (int)buf_size) || ((int)buf_size < 0)) return err;
 #define TLS_IMPORT_CHECK_SIZE(buf_pos, size, buf_size) if (((int)size > (int)buf_size - buf_pos) || ((int)buf_pos > (int)buf_size)) { DEBUG_PRINT("IMPORT ELEMENT SIZE ERROR\n"); tls_destroy_context(context); return NULL; }
 #define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { DEBUG_PRINT("* UNEXPECTED MESSAGE\n"); payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
@@ -3546,14 +3546,8 @@ struct TLSContext *tls_create_context(unsigned char is_server, unsigned short ve
     if (context) {
         memset(context, 0, sizeof(struct TLSContext));
         context->is_server = is_server;
-        if (version == DTLS_V12) {
-            version = TLS_V12;
+        if ((version == DTLS_V12) || (version == DTLS_V10))
             context->dtls = 1;
-        } else
-        if (version == DTLS_V10) {
-            version = TLS_V10;
-            context->dtls = 1;
-        }
         context->version = version;
     }
     return context;
@@ -4652,17 +4646,19 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     
     int res = 0;
     int downgraded = 0;
-    
     CHECK_SIZE(__TLS_CLIENT_HELLO_MINSIZE, buf_len, TLS_NEED_MORE_DATA)
     // big endian
     unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
     CHECK_SIZE(bytes_to_follow, buf_len - res, TLS_NEED_MORE_DATA)
     
-    unsigned short version = ntohs(*(unsigned short *)&buf[3]);
+    if (context->dtls) {
+        res += 8;
+    }
+    CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
+    unsigned short version = ntohs(*(unsigned short *)&buf[res]);
     
     res += 2;
-    
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
     DEBUG_PRINT("VERSION REQUIRED BY REMOTE %x, VERSION NOW %x\n", (int)version, (int)context->version);
 #ifdef TLS_LEGACY_SUPPORT
@@ -4690,9 +4686,9 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
 
     res += session_len;
 
-    CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
     if (context->is_server) {
         if (context->dtls) {
+            CHECK_SIZE(1, buf_len - res, TLS_NEED_MORE_DATA)
             unsigned char tls_cookie_len = buf[res++];
             if (tls_cookie_len) {
                 CHECK_SIZE(tls_cookie_len, buf_len - res, TLS_NEED_MORE_DATA)
@@ -4709,8 +4705,8 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 *dtls_verified = 1;
                 res += tls_cookie_len;
             }
-            CHECK_SIZE(1, buf_len - res, TLS_NEED_MORE_DATA)
         }
+        CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
         unsigned short cipher_len = ntohs(*(unsigned short *)&buf[res]);
         res += 2;
         CHECK_SIZE(cipher_len, buf_len - res, TLS_NEED_MORE_DATA)
@@ -4740,6 +4736,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
         // no compression support
         res += compression_list_size;
     } else {
+        CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
         unsigned short cipher = ntohs(*(unsigned short *)&buf[res]);
         res += 2;
         context->cipher = cipher;
@@ -4843,7 +4840,6 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     }
     if (buf_len != res)
         return TLS_NEED_MORE_DATA;
-    
     return res;
 }
 
@@ -5630,6 +5626,8 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 break;
         }
         payload_size++;
+        if (context->dtls)
+            payload_size += 8;
         buf += payload_size;
         buf_len -= payload_size;
     }
@@ -5686,6 +5684,7 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
     CHECK_SIZE(res, buf_len, TLS_NEED_MORE_DATA)
     
     unsigned char type = *buf;
+
     int buf_pos = 1;
     unsigned short version = ntohs(*(unsigned short *)&buf[buf_pos]);
     buf_pos += 2;
@@ -5698,10 +5697,18 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
         buf_pos += 3;
     }
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
-    unsigned short length = ntohs(*(unsigned short *)&buf[buf_pos]);
-    buf_pos += 2;
+    unsigned short length;
+
+    if ((context->dtls) && (type == TLS_HANDSHAKE)) {
+        buf_pos += 5;
+        length = buf_len - buf_pos;
+    } else {
+        length = ntohs(*(unsigned short *)&buf[buf_pos]);
+        buf_pos += 2;
+    }
     unsigned char *pt = NULL;
     const unsigned char *ptr = buf + buf_pos;
+
     CHECK_SIZE(buf_pos + length, buf_len, TLS_NEED_MORE_DATA)
     DEBUG_PRINT("Message type: %0x, length: %i\n", (int)type, (int)length);
     if (context->cipher_spec_set) {
@@ -6796,13 +6803,42 @@ int tls_consume_stream(struct TLSContext *context, const unsigned char *buf, int
     unsigned int tls_buffer_len = context->message_buffer_len;
     int err_flag = 0;
     
+    int tls_header_size;
+    int tls_size_offset;
+
+    if (context->dtls) {
+        tls_size_offset = 8;
+        tls_header_size = 10;
+    } else {
+        tls_size_offset = 3;
+        tls_header_size = 5;
+    }
     while (tls_buffer_len >= 5) {
-        unsigned int length = ntohs(*(unsigned short *)&context->message_buffer[index + 3]) + 5;
+        unsigned int length = ntohs(*(unsigned short *)&context->message_buffer[index + tls_size_offset]) + tls_header_size;
+        if (context->dtls) {
+            if (context->message_buffer[0] == TLS_HANDSHAKE) {
+                if (tls_buffer_len < 18) {
+                    DEBUG_PRINT("NEED DATA: %i/%i\n", tls_buffer_len, 18);
+                    break;
+                }
+                length = ntohs(*(unsigned short *)&context->message_buffer[index + tls_header_size + 1]) + tls_header_size + 3;
+                // unsigned short message_seq = ntohs(*(unsigned short *)&context->message_buffer[index + tls_header_size + 3]);
+                // unsigned int fragment_offset = ntohl(*(unsigned short *)&context->message_buffer[index + tls_header_size + 5]);
+                // unsigned int fragment_length = ntohl(*(unsigned short *)&context->message_buffer[index + tls_header_size + 9]);
+
+                /*if ((fragment_offset) || (fragment_length)) {
+                    DEBUG_PRINT("Multiple-datagram handshake message not yet supported (offset: %i, length: %i)\n", fragment_offset, fragment_length);
+                    if (!context->critical_error)
+                        context->critical_error = 1;
+                    err_flag = TLS_FEATURE_NOT_SUPPORTED;
+                    break;
+                }*/
+            }
+        }
         if (length > tls_buffer_len) {
             DEBUG_PRINT("NEED DATA: %i/%i\n", length, tls_buffer_len);
             break;
         }
-        
         int consumed = tls_parse_message(context, &context->message_buffer[index], length, certificate_verify);
         DEBUG_PRINT("Consumed %i bytes\n", consumed);
         if (consumed < 0) {
@@ -7586,7 +7622,7 @@ int SSL_read(struct TLSContext *context, void *buf, unsigned int len) {
     
     if (context->application_buffer_len)
         return tls_read(context, (unsigned char *)buf, len);
-    
+
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
     if ((!ssl_data) || (ssl_data->fd <= 0) || (context->critical_error))
         return TLS_GENERIC_ERROR;
