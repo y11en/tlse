@@ -182,7 +182,7 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
 struct TLSPacket *tls_build_hello(struct TLSContext *context);
 struct TLSPacket *tls_certificate_request(struct TLSContext *context);
 struct TLSPacket *tls_build_verify_request(struct TLSContext *context);
-int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets);
+int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified);
 int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, int buf_len, int is_client);
 int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned char *buf, int buf_len);
 int tls_parse_client_key_exchange(struct TLSContext *context, const unsigned char *buf, int buf_len);
