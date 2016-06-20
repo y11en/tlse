@@ -21,6 +21,8 @@
 #define TLS_V10                 0x0301
 #define TLS_V11                 0x0302
 #define TLS_V12                 0x0303
+#define DTLS_V10                1
+#define DTLS_V12                3
 
 #define TLS_NEED_MORE_DATA       0
 #define TLS_GENERIC_ERROR       -1
