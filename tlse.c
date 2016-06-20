@@ -4633,8 +4633,9 @@ struct TLSPacket *tls_build_verify_request(struct TLSContext *context) {
     return packet;
 }
 
-int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets) {
+int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified) {
     *write_packets = 0;
+    *dtls_verified = 0;
     if (context->connection_status != 0) {
         DEBUG_PRINT("UNEXPECTED HELLO MESSAGE\n");
         return TLS_UNEXPECTED_MESSAGE;
@@ -4679,8 +4680,28 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
         context->session_size = 0;
 
     res += session_len;
+
     CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
     if (context->is_server) {
+        if (context->dtls) {
+            unsigned char tls_cookie_len = buf[res++];
+            if (tls_cookie_len) {
+                CHECK_SIZE(tls_cookie_len, buf_len - res, TLS_NEED_MORE_DATA)
+                if ((context->dtls_cookie_len != tls_cookie_len) || (!context->dtls_cookie)) {
+                    *dtls_verified = -1;
+                    DEBUG_PRINT("INVALID DTLS COOKIE\n");
+                    return TLS_BROKEN_PACKET;
+                }
+                if (memcmp(context->dtls_cookie, buf, tls_cookie_len)) {
+                    *dtls_verified = -1;
+                    DEBUG_PRINT("MISMATCH DTLS COOKIE\n");
+                    return TLS_BROKEN_PACKET;
+                }
+                *dtls_verified = 1;
+                res += tls_cookie_len;
+            }
+            CHECK_SIZE(1, buf_len - res, TLS_NEED_MORE_DATA)
+        }
         unsigned short cipher_len = ntohs(*(unsigned short *)&buf[res]);
         res += 2;
         CHECK_SIZE(cipher_len, buf_len - res, TLS_NEED_MORE_DATA)
@@ -5356,6 +5377,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
         CHECK_SIZE(1, buf_len, TLS_NEED_MORE_DATA)
         unsigned char type = buf[0];
         unsigned int write_packets = 0;
+        unsigned int dtls_cookie_verified = 0;
         int certificate_verify_alert = no_error;
         unsigned int payload_size = buf[1] * 0x10000 + buf[2] * 0x100 + buf[3] + 3;
         switch (type) {
@@ -5389,7 +5411,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 CHECK_HANDSHAKE_STATE(context, 1, (context->dtls ? 2 : 1));
                 DEBUG_PRINT(" => CLIENT HELLO\n");
                 if (context->is_server)
-                    payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets);
+                    payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets, &dtls_cookie_verified);
                 else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 break;
@@ -5400,7 +5422,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 if (context->is_server)
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 else
-                    payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets);
+                    payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets, &dtls_cookie_verified);
                 break;
                 // hello verify request
             case 0x03:
@@ -5571,7 +5593,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 break;
             case 2:
                 // server handshake
-                if (context->dtls) {
+                if ((context->dtls) && (dtls_cookie_verified == 0)) {
                     __private_tls_write_packet(tls_build_verify_request(context));
                 } else {
                     DEBUG_PRINT("<= SENDING SERVER HELLO\n");
