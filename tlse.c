@@ -3546,6 +3546,14 @@ struct TLSContext *tls_create_context(unsigned char is_server, unsigned short ve
     if (context) {
         memset(context, 0, sizeof(struct TLSContext));
         context->is_server = is_server;
+        if (version == DTLS_V12) {
+            version = TLS_V12;
+            context->dtls = 1;
+        } else
+        if (version == DTLS_V10) {
+            version = TLS_V10;
+            context->dtls = 1;
+        }
         context->version = version;
     }
     return context;
@@ -3570,6 +3578,7 @@ struct TLSContext *tls_accept(struct TLSContext *context) {
         memset(child, 0, sizeof(struct TLSContext));
         child->is_server = 1;
         child->is_child = 1;
+        child->dtls = context->dtls;
         child->version = context->version;
         child->certificates = context->certificates;
         child->certificates_count = context->certificates_count;
