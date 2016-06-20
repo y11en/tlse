@@ -1156,7 +1156,7 @@ static unsigned char TLS_EC_secp521r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x23, 0x0
 struct TLSCertificate *asn1_parse(struct TLSContext *context, const unsigned char *buffer, int size, int client_cert);
 int __private_tls_update_hash(struct TLSContext *context, const unsigned char *in, unsigned int len);
 struct TLSPacket *tls_build_finished(struct TLSContext *context);
-unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen);
+unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen, uint64_t remote_sequence_number);
 int tls_random(unsigned char *key, int len);
 void tls_destroy_packet(struct TLSPacket *packet);
 struct TLSPacket *tls_build_hello(struct TLSContext *context);
@@ -3065,7 +3065,7 @@ void tls_packet_update(struct TLSPacket *packet) {
                                 // copy payload
                                 memcpy(buf + buf_pos, packet->buf + header_size, packet->len - header_size);
                                 buf_pos += packet->len - header_size;
-                                __private_tls_hmac_message(1, packet->context, packet->buf, packet->len, NULL, 0, buf + buf_pos, mac_size);
+                                __private_tls_hmac_message(1, packet->context, packet->buf, packet->len, NULL, 0, buf + buf_pos, mac_size, 0);
                                 buf_pos += mac_size;
                                 
                                 memset(buf + buf_pos, padding - 1, padding);
@@ -5605,7 +5605,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
     return orig_len;
 }
 
-unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen) {
+unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen, uint64_t remote_sequence_number) {
     hmac_state hash;
     int mac_size = outlen;
     int hash_idx;
@@ -5619,8 +5619,16 @@ unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *
     
     if (hmac_init(&hash, hash_idx, local ? context->crypto.local_mac : context->crypto.remote_mac, mac_size))
         return 0;
-    
-    uint64_t squence_number = local ? htonll(context->local_sequence_number) : htonll(context->remote_sequence_number);
+
+    uint64_t squence_number;
+    if (local)
+        squence_number = htonll(context->local_sequence_number);
+    else
+    if (context->dtls)
+        squence_number = htonll(remote_sequence_number);
+    else
+        squence_number = htonll(context->remote_sequence_number);
+
     if (hmac_process(&hash, (unsigned char *)&squence_number, sizeof(uint64_t)))
         return 0;
     
@@ -5651,7 +5659,7 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
     unsigned short version = ntohs(*(unsigned short *)&buf[buf_pos]);
     buf_pos += 2;
     unsigned short epoch = 0;
-    unsigned int dtls_sequence_number = 0;
+    uint64_t dtls_sequence_number = 0;
     if (context->dtls) {
         epoch = ntohs(*(unsigned short *)&buf[buf_pos]);
         buf_pos += 2;
@@ -5688,7 +5696,10 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
                 return TLS_BROKEN_PACKET;
             }
             // build aad and iv
-            *((uint64_t *)aad) = htonll(context->remote_sequence_number);
+            if (context->dtls)
+                *((uint64_t *)aad) = htonll(dtls_sequence_number);
+            else
+                *((uint64_t *)aad) = htonll(context->remote_sequence_number);
             unsigned char iv[12];
             memcpy(iv, context->crypto.remote_aead_iv, 4);
             memcpy(iv + 4, buf + header_size, 8);
@@ -5742,7 +5753,10 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
                 __private_random_sleep(__TLS_MAX_ERROR_SLEEP_uS);
                 return TLS_BROKEN_PACKET;
             }
-            *((uint64_t *)aad) = htonll(context->remote_sequence_number);
+            if (context->dtls)
+                *((uint64_t *)aad) = htonll(dtls_sequence_number);
+            else
+                *((uint64_t *)aad) = htonll(context->remote_sequence_number);
             aad[8] = buf[0];
             aad[9] = buf[1];
             aad[10] = buf[2];
@@ -5849,7 +5863,7 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
             unsigned char temp_buf[10];
             memcpy(temp_buf, buf, 3);
             *(unsigned short *)&temp_buf[3] = htons(length);
-            unsigned int hmac_out_len = __private_tls_hmac_message(0, context, temp_buf, header_size, ptr, length, hmac_out, mac_size);
+            unsigned int hmac_out_len = __private_tls_hmac_message(0, context, temp_buf, header_size, ptr, length, hmac_out, mac_size, dtls_sequence_number);
             if ((hmac_out_len != mac_size) || (memcmp(message_hmac, hmac_out, mac_size))) {
                 DEBUG_PRINT("INTEGRITY CHECK FAILED (msg length %i)\n", length);
                 DEBUG_DUMP_HEX_LABEL("HMAC RECEIVED", message_hmac, mac_size);
