@@ -1077,6 +1077,7 @@ struct TLSContext {
     unsigned short dtls_epoch_remote;
     unsigned char *dtls_cookie;
     unsigned short dtls_cookie_len;
+    unsigned char dtls_seq;
     unsigned char *cached_handshake;
     unsigned int cached_handshake_len;
     unsigned char client_verified;
@@ -1169,6 +1170,7 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
 int __private_tls_get_hash(struct TLSContext *context, unsigned char *hout);
 int __private_tls_build_random(struct TLSPacket *packet);
 unsigned int __private_tls_mac_length(struct TLSContext *context);
+void __private_dtls_handshake_data(struct TLSContext *context, struct TLSPacket *packet, unsigned int dataframe);
 #ifdef TLS_FORWARD_SECRECY
 void __private_tls_dhe_free(struct TLSContext *context);
 void __private_tls_ecc_dhe_free(struct TLSContext *context);
@@ -1624,7 +1626,7 @@ int __private_rsa_sign_hash_md5sha1(const unsigned char *in, unsigned long inlen
         *outlen = modulus_bytelen;
         return CRYPT_BUFFER_OVERFLOW;
     }
-    
+    x = modulus_bytelen;
     err = pkcs_1_v1_5_encode(in, inlen, LTC_LTC_PKCS_1_EMSA, modulus_bitlen, NULL, 0, out, &x);
     if (err != CRYPT_OK)
         return err;
@@ -2103,7 +2105,7 @@ void __private_tls_prf(struct TLSContext *context,
         DEBUG_PRINT("NULL SECRET\n");
         return;
     }
-    if (context->version < TLS_V12) {
+    if ((context->version != TLS_V12) && (context->version != DTLS_V12)) {
         int md5_hash_idx = find_hash("md5");
         int sha1_hash_idx = find_hash("sha1");
         int half_secret = (secret_len + 1) / 2;
@@ -3271,7 +3273,7 @@ void __private_tls_create_hash(struct TLSContext *context) {
         return;
     
     TLSHash *hash = __private_tls_ensure_hash(context);
-    if (context->version >= TLS_V12) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
         int hash_size = __private_tls_mac_length(context);
         if (hash->created) {
             unsigned char temp[__TLS_MAX_SHA_SIZE];
@@ -3304,7 +3306,7 @@ int __private_tls_update_hash(struct TLSContext *context, const unsigned char *i
     if (!context)
         return 0;
     TLSHash *hash = __private_tls_ensure_hash(context);
-    if (context->version >= TLS_V12) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
         if (!hash->created) {
             __private_tls_create_hash(context);
 #ifdef TLS_LEGACY_SUPPORT
@@ -3372,7 +3374,7 @@ int __private_tls_done_hash(struct TLSContext *context, unsigned char *hout) {
         return 0;
     
     int hash_size = 0;
-    if (context->version >= TLS_V12) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
         unsigned char temp[__TLS_MAX_SHA_SIZE];
         if (!hout)
             hout = temp;
@@ -3414,7 +3416,7 @@ int __private_tls_get_hash(struct TLSContext *context, unsigned char *hout) {
         return 0;
     
     int hash_size = 0;
-    if (context->version >= TLS_V12) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
         hash_size = __private_tls_mac_length(context);
         hash_state prec;
         memcpy(&prec, &hash->hash, sizeof(hash_state));
@@ -3499,6 +3501,44 @@ const unsigned char *tls_get_write_buffer(struct TLSContext *context, unsigned i
     }
     *outlen = context->tls_buffer_len;
     return context->tls_buffer;
+}
+
+const unsigned char *tls_get_message(struct TLSContext *context, unsigned int *outlen, int offset) {
+    if (!outlen)
+        return NULL;
+    if ((!context) || (!context->tls_buffer)) {
+        *outlen = 0;
+        return NULL;
+    }
+
+    if (offset >= context->tls_buffer_len) {
+        *outlen = 0;
+        return NULL;
+    }
+    unsigned char *tls_buffer = &context->tls_buffer[offset];
+    unsigned int tls_buffer_len = context->tls_buffer_len - offset;
+    int len = 0;
+    if (context->dtls) {
+        if (tls_buffer_len < 13) {
+            *outlen = 0;
+            return NULL;
+        }
+
+        len = ntohs(*(unsigned short *)&tls_buffer[11]) + 13;
+    } else {
+        if (tls_buffer_len < 5) {
+            *outlen = 0;
+            return NULL;
+        }
+        len = ntohs(*(unsigned short *)&tls_buffer[3]) + 5;
+    }
+    if (len > tls_buffer_len) {
+        *outlen = 0;
+        return NULL;
+    }
+
+    *outlen = len;
+    return tls_buffer;
 }
 
 void tls_buffer_clear(struct TLSContext *context) {
@@ -3799,7 +3839,7 @@ int tls_cipher_supported(struct TLSContext *context, unsigned short cipher) {
 #ifdef TLS_WITH_CHACHA20_POLY1305
         case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
 #endif
-            if (context->version >= TLS_V12) {
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
                 if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
                     return 1;
             }
@@ -3830,7 +3870,7 @@ int tls_cipher_supported(struct TLSContext *context, unsigned short cipher) {
         case TLS_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_CBC_SHA256:
         case TLS_RSA_WITH_AES_256_GCM_SHA384:
-            if (context->version >= TLS_V12)
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
                 return 1;
             return 0;
     }
@@ -3854,7 +3894,7 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
         case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384:
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
-            if (context->version >= TLS_V12) {
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
                 if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
                     return 1;
             }
@@ -3876,7 +3916,7 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
         case TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
         case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
 #endif
-            if (context->version >= TLS_V12)
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
                 return 1;
             break;
     }
@@ -4197,6 +4237,21 @@ struct TLSPacket *tls_build_client_key_exchange(struct TLSContext *context) {
     return packet;
 }
 
+void __private_dtls_handshake_data(struct TLSContext *context, struct TLSPacket *packet, unsigned int framelength) {
+    // message seq
+    tls_packet_uint16(packet, context->dtls_seq);
+    // fragment offset
+    tls_packet_uint24(packet, 0);
+    // fragment length
+    tls_packet_uint24(packet, framelength);
+}
+
+void __private_dtls_handshake_copyframesize(struct TLSContext *context, struct TLSPacket *packet) {
+    packet->buf[22] = packet->buf[14];
+    packet->buf[23] = packet->buf[15];
+    packet->buf[24] = packet->buf[16];
+}
+
 struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int method) {
     if (!context->is_server) {
         DEBUG_PRINT("CANNOT BUILD SERVER KEY EXCHANGE MESSAGE FOR CLIENTS\n");
@@ -4207,6 +4262,8 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
     tls_packet_uint8(packet, 0x0C);
     unsigned char dummy[3];
     tls_packet_append(packet, dummy, 3);
+    if (context->dtls)
+        __private_dtls_handshake_data(context, packet, 0);
     int start_len = packet->len;
 #ifdef TLS_FORWARD_SECRECY
     if (method == KEA_dhe_rsa) {
@@ -4308,17 +4365,17 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
         unsigned long out_len = __TLS_MAX_RSA_KEY;
         
         int hash_algorithm;
-        if (context->version < TLS_V12) {
+        if ((context->version != TLS_V12) && (context->version != DTLS_V12)) {
             hash_algorithm = __md5_sha1;
         } else {
-            if (context->version >= TLS_V12)
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
                 hash_algorithm = sha256;
             else
                 hash_algorithm = sha1;
             
 #ifdef TLS_ECDSA_SUPPORTED
             if (tls_is_ecdsa(context)) {
-                if (context->version >= TLS_V12)
+                if ((context->version == TLS_V12) || (context->version == DTLS_V12))
                     hash_algorithm = sha512;
                 tls_packet_uint8(packet, hash_algorithm);
                 tls_packet_uint8(packet, ecdsa);
@@ -4350,17 +4407,20 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
         }
         TLS_FREE(message);
     }
-    
     if ((!packet->broken) && (packet->buf)) {
         int remaining = packet->len - start_len;
         int payload_pos = 6;
         if (context->dtls)
-            payload_pos = 11;
+            payload_pos = 14;
         packet->buf[payload_pos] = remaining / 0x10000;
         remaining %= 0x10000;
         packet->buf[payload_pos + 1] = remaining / 0x100;
         remaining %= 0x100;
         packet->buf[payload_pos + 2] = remaining;
+        if (context->dtls) {
+            __private_dtls_handshake_copyframesize(context, packet);
+            context->dtls_seq++;
+        }
     }
     tls_packet_update(packet);
     return packet;
@@ -4388,6 +4448,10 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
             tls_packet_uint8(packet, 0x01);
         unsigned char dummy[3];
         tls_packet_append(packet, dummy, 3);
+
+        if (context->dtls)
+            __private_dtls_handshake_data(context, packet, 0);
+
         int start_len = packet->len;
         tls_packet_uint16(packet, version);
         if (context->is_server)
@@ -4416,7 +4480,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
             // no compression
             tls_packet_uint8(packet, 0);
 #ifndef STRICT_TLS
-            if (context->version >= TLS_V12) {
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
                 // extensions size
                 tls_packet_uint16(packet, 5);
                 // secure renegotation
@@ -4438,7 +4502,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
 #endif
         } else {
 #ifndef STRICT_TLS
-            if (context->version >= TLS_V12) {
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
 #endif
 #ifdef TLS_FORWARD_SECRECY
 #ifdef TLS_CLIENT_ECDHE
@@ -4511,7 +4575,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
             tls_packet_uint8(packet, 1);
             // no compression
             tls_packet_uint8(packet, 0);
-            if (context->version >= TLS_V12) {
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
                 int sni_len = 0;
                 if (context->sni)
                     sni_len = strlen(context->sni);
@@ -4563,6 +4627,10 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
             packet->buf[payload_pos + 1] = remaining / 0x100;
             remaining %= 0x100;
             packet->buf[payload_pos + 2] = remaining;
+            if (context->dtls) {
+                __private_dtls_handshake_copyframesize(context, packet);
+                context->dtls_seq++;
+            }
         }
         tls_packet_update(packet);
     }
@@ -4583,7 +4651,7 @@ struct TLSPacket *tls_certificate_request(struct TLSContext *context) {
         int start_len = packet->len;
         tls_packet_uint8(packet, 1);
         tls_packet_uint8(packet, rsa_sign);
-        if (context->version >= TLS_V12) {
+        if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
             // 10 pairs or 2 bytes
             tls_packet_uint16(packet, 10);
             tls_packet_uint8(packet, sha256);
@@ -4726,6 +4794,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                     DEBUG_PRINT("MISMATCH DTLS COOKIE\n");
                     return TLS_BROKEN_PACKET;
                 }
+                context->dtls_seq++;
                 *dtls_verified = 1;
                 res += tls_cookie_len;
             }
@@ -5042,7 +5111,7 @@ const unsigned char *__private_tls_parse_signature(struct TLSContext *context, c
     *hash_algorithm = __md5_sha1;
     *sign_algorithm = rsa_sign;
     *sig_size = 0;
-    if (context->version >= TLS_V12) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
         *hash_algorithm = buf[res];
         res++;
         *sign_algorithm = buf[res];
@@ -5358,7 +5427,7 @@ int tls_parse_verify(struct TLSContext *context, const unsigned char *buf, int b
     unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     CHECK_SIZE(bytes_to_follow, buf_len - 3, TLS_BAD_CERTIFICATE)
     int res = -1;
-    if (context->version >= TLS_V12) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
         unsigned int hash = buf[3];
         unsigned int algorithm = buf[4];
         if (algorithm != rsa)
@@ -6679,6 +6748,10 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
     tls_packet_uint8(packet, 0x0B);
     if (all_certificate_size) {
         tls_packet_uint24(packet, all_certificate_size + 3);
+
+        if (context->dtls)
+            __private_dtls_handshake_data(context, packet, all_certificate_size + 3);
+
         tls_packet_uint24(packet, all_certificate_size);
         for (i = 0; i < certificates_count; i++) {
             struct TLSCertificate *cert = certificates[i];
@@ -6698,8 +6771,12 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
         }
     } else {
         tls_packet_uint24(packet, all_certificate_size);
+        if (context->dtls)
+            __private_dtls_handshake_data(context, packet, all_certificate_size);
     }
     tls_packet_update(packet);
+    if (context->dtls)
+        context->dtls_seq++;
     return packet;
 }
 
@@ -6757,6 +6834,8 @@ struct TLSPacket *tls_build_done(struct TLSContext *context) {
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0E);
     tls_packet_uint24(packet, 0);
+    if (context->dtls)
+        __private_dtls_handshake_data(context, packet, 0);
     tls_packet_update(packet);
     return packet;
 }
