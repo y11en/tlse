@@ -106,7 +106,7 @@
 #define __TLS_BLOB_INCREMENT        0xFFF
 #define __TLS_ASN1_MAXLEVEL         0xFF
 
-#define __TLS_COOKIE_SIZE           0xFF
+#define __DTLS_COOKIE_SIZE          32
 
 #define __TLS_MAX_SHA_SIZE 48
 #define __TLS_V11_HASH_SIZE 36      // 16(md5) + 20(sha1)
@@ -2897,7 +2897,7 @@ struct TLSPacket *tls_create_packet(struct TLSContext *context, unsigned char ty
         return NULL;
     }
     if ((context) && (context->dtls))
-        packet->len = 10;
+        packet->len = 13;
     else
         packet->len = 5;
     packet->buf[0] = type;
@@ -3003,16 +3003,24 @@ void tls_packet_update(struct TLSPacket *packet) {
     if ((packet) && (!packet->broken)) {
         unsigned int header_size = 5;
         if ((packet->context) && (packet->context->dtls)) {
-            header_size = 10;
-            *(unsigned short *)&packet->buf[5] = htons(packet->context->dtls_epoch_local);
-            unsigned int sequence_number = (unsigned int)packet->context->local_sequence_number;
-            packet->buf[7] = sequence_number / 0x10000;
+            header_size = 13;
+            *(unsigned short *)&packet->buf[3] = htons(packet->context->dtls_epoch_local);
+            uint64_t sequence_number = packet->context->local_sequence_number;
+            packet->buf[5] = sequence_number / 0x10000000000LL;
+            sequence_number %= 0x10000000000LL;
+            packet->buf[6] = sequence_number / 0x100000000LL;
+            sequence_number %= 0x100000000LL;
+            packet->buf[7] = sequence_number / 0x1000000;
+            sequence_number %= 0x1000000;
+            packet->buf[8] = sequence_number / 0x10000;
             sequence_number %= 0x10000;
-            packet->buf[8] = sequence_number / 0x100;
+            packet->buf[9] = sequence_number / 0x100;
             sequence_number %= 0x100;
-            packet->buf[9] = sequence_number;
-        }
-        *(unsigned short *)&packet->buf[3] = htons(packet->len - header_size);
+            packet->buf[10] = sequence_number;
+
+            *(unsigned short *)&packet->buf[11] = htons(packet->len - header_size);
+        } else
+            *(unsigned short *)&packet->buf[3] = htons(packet->len - header_size);
         if (packet->context) {
             if (packet->buf[0] != TLS_CHANGE_CIPHER)  {
                 if ((packet->buf[0] == TLS_HANDSHAKE) && (packet->len > header_size) && (packet->buf[header_size] != 0x00))
@@ -4549,7 +4557,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
             int remaining = packet->len - start_len;
             int payload_pos = 6;
             if (context->dtls)
-                payload_pos = 11;
+                payload_pos = 14;
             packet->buf[payload_pos] = remaining / 0x10000;
             remaining %= 0x10000;
             packet->buf[payload_pos + 1] = remaining / 0x100;
@@ -4595,7 +4603,7 @@ struct TLSPacket *tls_certificate_request(struct TLSContext *context) {
             int remaining = packet->len - start_len;
             int payload_pos = 6;
             if (context->dtls)
-                payload_pos = 11;
+                payload_pos = 14;
             packet->buf[payload_pos] = remaining / 0x10000;
             remaining %= 0x10000;
             packet->buf[payload_pos + 1] = remaining / 0x100;
@@ -4612,23 +4620,33 @@ struct TLSPacket *tls_build_verify_request(struct TLSContext *context) {
         return NULL;
     
     if ((!context->dtls_cookie) || (!context->dtls_cookie_len)) {
-        context->dtls_cookie = (unsigned char *)TLS_MALLOC(__TLS_COOKIE_SIZE);
+        context->dtls_cookie = (unsigned char *)TLS_MALLOC(__DTLS_COOKIE_SIZE);
         if (!context->dtls_cookie)
             return NULL;
         
-        if (!tls_random(context->dtls_cookie, __TLS_COOKIE_SIZE)) {
+        if (!tls_random(context->dtls_cookie, __DTLS_COOKIE_SIZE)) {
             TLS_FREE(context->dtls_cookie);
             context->dtls_cookie = NULL;
             return NULL;
         }
-        context->dtls_cookie_len = __TLS_COOKIE_SIZE;
+        context->dtls_cookie_len = __DTLS_COOKIE_SIZE;
     }
-    
+
     unsigned short packet_version = context->version;
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, packet_version, 0);
     if (packet) {
         // verify request
         tls_packet_uint8(packet, 0x03);
+        // 24-bit length
+        tls_packet_uint24(packet, context->dtls_cookie_len + 3);
+        // 16-bit message_sequence
+        tls_packet_uint16(packet, 0);
+        // 24-bit fragment_offset
+        tls_packet_uint24(packet, 0);
+        // 24-bit fragment_offset
+        tls_packet_uint24(packet, context->dtls_cookie_len + 3);
+        // server_version
+        tls_packet_uint16(packet, context->version);
         tls_packet_uint8(packet, context->dtls_cookie_len);
         tls_packet_append(packet, context->dtls_cookie, context->dtls_cookie_len);
         tls_packet_update(packet);
@@ -4658,6 +4676,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     CHECK_SIZE(bytes_to_follow, buf_len - res, TLS_NEED_MORE_DATA)
     
     if (context->dtls) {
+        // 16 bit message seq + 24 bit fragment offset + 24 bit fragment length
         res += 8;
     }
     CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
@@ -4702,7 +4721,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                     DEBUG_PRINT("INVALID DTLS COOKIE\n");
                     return TLS_BROKEN_PACKET;
                 }
-                if (memcmp(context->dtls_cookie, buf, tls_cookie_len)) {
+                if (memcmp(context->dtls_cookie, &buf[res], tls_cookie_len)) {
                     *dtls_verified = -1;
                     DEBUG_PRINT("MISMATCH DTLS COOKIE\n");
                     return TLS_BROKEN_PACKET;
@@ -4843,7 +4862,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
             res += extension_len;
         }
     }
-    if (buf_len != res)
+    if ((buf_len != res) && (!context->dtls))
         return TLS_NEED_MORE_DATA;
     return res;
 }
@@ -5382,6 +5401,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
         return 1;
 #endif
     }
+
     while ((buf_len >= 4) && (!context->critical_error)) {
         int payload_res = 0;
         CHECK_SIZE(1, buf_len, TLS_NEED_MORE_DATA)
@@ -5420,24 +5440,24 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
             case 0x01:
                 CHECK_HANDSHAKE_STATE(context, 1, (context->dtls ? 2 : 1));
                 DEBUG_PRINT(" => CLIENT HELLO\n");
-                if (context->is_server)
+                if (context->is_server) {
                     payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets, &dtls_cookie_verified);
-                else
+                    DEBUG_PRINT(" => DTLS COOKIE VERIFIED: %i (%i)\n", dtls_cookie_verified, payload_res);
+                    if ((context->dtls) && (payload_res > 0) && (!dtls_cookie_verified) && (context->connection_status == 1)) {
+                        // wait client hello
+                        context->connection_status = 0;
+                    }
+                } else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 break;
                 // server hello
             case 0x02:
                 CHECK_HANDSHAKE_STATE(context, 2, 1);
                 DEBUG_PRINT(" => SERVER HELLO\n");
-                if (context->is_server) {
+                if (context->is_server)
                     payload_res = TLS_UNEXPECTED_MESSAGE;
-                } else {
+                else
                     payload_res = tls_parse_hello(context, buf + 1, payload_size, &write_packets, &dtls_cookie_verified);
-                    if ((context->dtls) && (payload_res > 0) && (!dtls_cookie_verified) && (context->connection_status == 1)) {
-                        // wait client hello
-                        context->connection_status = 0;
-                    }
-                }
                 break;
                 // hello verify request
             case 0x03:
@@ -5687,7 +5707,7 @@ unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *
 int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_len, tls_validation_function certificate_verify) {
     int res = 5;
     if (context->dtls)
-        res = 10;
+        res = 13;
     int header_size = res;
     int payload_res = 0;
     
@@ -5696,26 +5716,24 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
     unsigned char type = *buf;
 
     int buf_pos = 1;
+
     unsigned short version = ntohs(*(unsigned short *)&buf[buf_pos]);
     buf_pos += 2;
+
     unsigned short epoch = 0;
     uint64_t dtls_sequence_number = 0;
     if (context->dtls) {
         epoch = ntohs(*(unsigned short *)&buf[buf_pos]);
         buf_pos += 2;
-        dtls_sequence_number = buf[buf_pos] * 0x10000 + buf[buf_pos + 1] * 0x100 + buf[buf_pos + 2];
-        buf_pos += 3;
+        dtls_sequence_number = buf[buf_pos] * 0x10000000000LL + buf[buf_pos + 1] * 0x100000000LL + buf[buf_pos + 2] * 0x1000000 + buf[buf_pos + 3] * 0x10000 + buf[buf_pos + 4] * 0x100 + buf[buf_pos + 5];
+        buf_pos += 6;
     }
+
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
     unsigned short length;
+    length = ntohs(*(unsigned short *)&buf[buf_pos]);
+    buf_pos += 2;
 
-    if ((context->dtls) && (type == TLS_HANDSHAKE)) {
-        buf_pos += 5;
-        length = buf_len - buf_pos;
-    } else {
-        length = ntohs(*(unsigned short *)&buf[buf_pos]);
-        buf_pos += 2;
-    }
     unsigned char *pt = NULL;
     const unsigned char *ptr = buf + buf_pos;
 
@@ -6817,34 +6835,14 @@ int tls_consume_stream(struct TLSContext *context, const unsigned char *buf, int
     int tls_size_offset;
 
     if (context->dtls) {
-        tls_size_offset = 8;
-        tls_header_size = 10;
+        tls_size_offset = 11;
+        tls_header_size = 13;
     } else {
         tls_size_offset = 3;
         tls_header_size = 5;
     }
     while (tls_buffer_len >= 5) {
         unsigned int length = ntohs(*(unsigned short *)&context->message_buffer[index + tls_size_offset]) + tls_header_size;
-        if (context->dtls) {
-            if (context->message_buffer[0] == TLS_HANDSHAKE) {
-                if (tls_buffer_len < 18) {
-                    DEBUG_PRINT("NEED DATA: %i/%i\n", tls_buffer_len, 18);
-                    break;
-                }
-                length = ntohs(*(unsigned short *)&context->message_buffer[index + tls_header_size + 1]) + tls_header_size + 3;
-                // unsigned short message_seq = ntohs(*(unsigned short *)&context->message_buffer[index + tls_header_size + 3]);
-                // unsigned int fragment_offset = ntohl(*(unsigned short *)&context->message_buffer[index + tls_header_size + 5]);
-                // unsigned int fragment_length = ntohl(*(unsigned short *)&context->message_buffer[index + tls_header_size + 9]);
-
-                /*if ((fragment_offset) || (fragment_length)) {
-                    DEBUG_PRINT("Multiple-datagram handshake message not yet supported (offset: %i, length: %i)\n", fragment_offset, fragment_length);
-                    if (!context->critical_error)
-                        context->critical_error = 1;
-                    err_flag = TLS_FEATURE_NOT_SUPPORTED;
-                    break;
-                }*/
-            }
-        }
         if (length > tls_buffer_len) {
             DEBUG_PRINT("NEED DATA: %i/%i\n", length, tls_buffer_len);
             break;
