@@ -5795,14 +5795,11 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
     unsigned short version = ntohs(*(unsigned short *)&buf[buf_pos]);
     buf_pos += 2;
 
-    unsigned short epoch = 0;
     uint64_t dtls_sequence_number = 0;
     if (context->dtls) {
         CHECK_SIZE(buf_pos + 8, buf_len, TLS_NEED_MORE_DATA)
-        epoch = ntohs(*(unsigned short *)&buf[buf_pos]);
-        buf_pos += 2;
-        dtls_sequence_number = buf[buf_pos] * 0x10000000000LL + buf[buf_pos + 1] * 0x100000000LL + buf[buf_pos + 2] * 0x1000000 + buf[buf_pos + 3] * 0x10000 + buf[buf_pos + 4] * 0x100 + buf[buf_pos + 5];
-        buf_pos += 6;
+        dtls_sequence_number = ntohll(*(uint64_t *)&buf[buf_pos]);
+        buf_pos += 8;
     }
 
     VERSION_SUPPORTED(version, TLS_NOT_SAFE)
