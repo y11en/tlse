@@ -5999,10 +5999,10 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
             
             const unsigned char *message_hmac = &ptr[length];
             unsigned char hmac_out[__TLS_MAX_MAC_SIZE];
-            unsigned char temp_buf[13];
-            memcpy(temp_buf, buf, header_size - 2);
-            *(unsigned short *)&temp_buf[header_size - 2] = htons(length);
-            unsigned int hmac_out_len = __private_tls_hmac_message(0, context, temp_buf, header_size, ptr, length, hmac_out, mac_size, dtls_sequence_number);
+            unsigned char temp_buf[5];
+            memcpy(temp_buf, buf, 3);
+            *(unsigned short *)&temp_buf[3] = htons(length);
+            unsigned int hmac_out_len = __private_tls_hmac_message(0, context, temp_buf, 5, ptr, length, hmac_out, mac_size, dtls_sequence_number);
             if ((hmac_out_len != mac_size) || (memcmp(message_hmac, hmac_out, mac_size))) {
                 DEBUG_PRINT("INTEGRITY CHECK FAILED (msg length %i)\n", length);
                 DEBUG_DUMP_HEX_LABEL("HMAC RECEIVED", message_hmac, mac_size);
