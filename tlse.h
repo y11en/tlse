@@ -144,6 +144,7 @@ typedef int (*tls_validation_function)(struct TLSContext *context, struct TLSCer
 unsigned char *tls_pem_decode(const unsigned char *data_in, unsigned int input_length, int cert_index, unsigned int *output_len);
 struct TLSCertificate *tls_create_certificate();
 int tls_certificate_valid_subject(struct TLSCertificate *cert, const char *subject);
+int tls_certificate_valid_subject_name(const unsigned char *cert_subject, const char *subject);
 int tls_certificate_is_valid(struct TLSCertificate *cert);
 void tls_certificate_set_copy(unsigned char **member, const unsigned char *val, int len);
 void tls_certificate_set_copy_date(unsigned char **member, const unsigned char *val, int len);
