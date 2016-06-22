@@ -3031,8 +3031,11 @@ void tls_packet_update(struct TLSPacket *packet) {
             *(unsigned short *)&packet->buf[3] = htons(packet->len - header_size);
         if (packet->context) {
             if (packet->buf[0] != TLS_CHANGE_CIPHER)  {
-                if ((packet->buf[0] == TLS_HANDSHAKE) && (packet->len > header_size) && (packet->buf[header_size] != 0x00))
-                    __private_tls_update_hash(packet->context, packet->buf + header_size, packet->len - header_size);
+                if ((packet->buf[0] == TLS_HANDSHAKE) && (packet->len > header_size)) {
+                    unsigned char handshake_type = packet->buf[header_size];
+                    if ((handshake_type != 0x00) && (handshake_type != 0x03))
+                        __private_tls_update_hash(packet->context, packet->buf + header_size, packet->len - header_size);
+                }
                 
                 if ((packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
                     int block_size = __TLS_AES_BLOCK_SIZE;
@@ -3069,8 +3072,8 @@ void tls_packet_update(struct TLSPacket *packet) {
                             unsigned char *ct = (unsigned char *)TLS_MALLOC(length + header_size);
                             if (ct) {
                                 unsigned int buf_pos = 0;
-                                memcpy(ct, packet->buf, 3);
-                                *(unsigned short *)&ct[3] = htons(length);
+                                memcpy(ct, packet->buf, header_size - 2);
+                                *(unsigned short *)&ct[header_size - 2] = htons(length);
 #ifdef TLS_LEGACY_SUPPORT
                                 if (packet->context->version != TLS_V10)
 #endif
@@ -3081,7 +3084,13 @@ void tls_packet_update(struct TLSPacket *packet) {
                                 // copy payload
                                 memcpy(buf + buf_pos, packet->buf + header_size, packet->len - header_size);
                                 buf_pos += packet->len - header_size;
-                                __private_tls_hmac_message(1, packet->context, packet->buf, packet->len, NULL, 0, buf + buf_pos, mac_size, 0);
+                                if (packet->context->dtls) {
+                                    unsigned char temp_buf[5];
+                                    memcpy(temp_buf, packet->buf, 3);
+                                    *(unsigned short *)&temp_buf[3] = *(unsigned short *)&packet->buf[header_size - 2];
+                                    __private_tls_hmac_message(1, packet->context, temp_buf, 5, packet->buf + header_size, length  - header_size, buf + buf_pos, mac_size, 0);
+                                } else
+                                    __private_tls_hmac_message(1, packet->context, packet->buf, packet->len, NULL, 0, buf + buf_pos, mac_size, 0);
                                 buf_pos += mac_size;
                                 
                                 memset(buf + buf_pos, padding - 1, padding);
@@ -3093,7 +3102,6 @@ void tls_packet_update(struct TLSPacket *packet) {
                                 packet->buf = ct;
                                 packet->len = length + header_size;
                                 packet->size = packet->len;
-                                //DEBUG_DUMP_HEX_LABEL("CT BUFFER", packet->buf, packet->len);
                             } else {
                                 // invalidate packet
                                 memset(packet->buf, 0, packet->len);
@@ -5485,6 +5493,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
 
     while ((buf_len >= 4) && (!context->critical_error)) {
         int payload_res = 0;
+        unsigned char update_hash = 1;
         CHECK_SIZE(1, buf_len, TLS_NEED_MORE_DATA)
         unsigned char type = buf[0];
         unsigned int write_packets = 0;
@@ -5530,6 +5539,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                     if ((context->dtls) && (payload_res > 0) && (!dtls_cookie_verified) && (context->connection_status == 1)) {
                         // wait client hello
                         context->connection_status = 0;
+                        update_hash = 0;
                     }
                 } else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
@@ -5548,6 +5558,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 CHECK_HANDSHAKE_STATE(context, 3, 1);
                 if ((context->dtls) && (!context->is_server)) {
                     // to do
+                    update_hash = 0;
                 } else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 break;
@@ -5638,7 +5649,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 DEBUG_PRINT(" => NOT UNDERSTOOD PAYLOAD TYPE: %x\n", (int)type);
                 return TLS_NOT_UNDERSTOOD;
         }
-        if (type != 0x00)
+        if ((type != 0x00) && (update_hash))
             __private_tls_update_hash(context, buf, payload_size + 1);
         
         if (certificate_verify_alert != no_error) {
