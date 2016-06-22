@@ -2526,11 +2526,12 @@ int tls_certificate_valid_subject(struct TLSCertificate *cert, const char *subje
     
     const char *wildcard = strchr((const char *)cert->subject, '*');
     if (wildcard) {
-        if (!wildcard[0]) {
+        // 6.4.3 (1) The client SHOULD NOT attempt to match a presented identifier in
+        // which the wildcard character comprises a label other than the left-most label
+        if (!wildcard[1]) {
             // subject is [*]
-            if ((void *)wildcard == (void *)cert->subject)
-                return 0;
-            // subhect is [something*] .. invalid
+            // or
+            // subject is [something*] .. invalid
             return bad_certificate;
         }
         wildcard++;
@@ -2542,7 +2543,13 @@ int tls_certificate_valid_subject(struct TLSCertificate *cert, const char *subje
                 return 0;
         }
         if (match) {
-            // check if is exact match
+            unsigned long offset = (unsigned long)match - (unsigned long)subject;
+            if (offset) {
+                // check for foo.*.domain.com against *.domain.com (invalid)
+                if (memchr(subject, '.', offset))
+                    return bad_certificate;
+            }
+            // check if exact match
             if (!strcasecmp(match, wildcard))
                 return 0;
         }
