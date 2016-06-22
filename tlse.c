@@ -799,6 +799,11 @@ typedef enum {
     ecdsa = 3
 } TLSSignatureAlgorithm;
 
+struct __private_OID_chain {
+    void *top;
+    unsigned char *oid;
+};
+
 struct TLSCertificate {
     unsigned short version;
     unsigned int algorithm;
@@ -822,6 +827,9 @@ struct TLSCertificate {
     unsigned char *location;
     unsigned char *entity;
     unsigned char *subject;
+    unsigned char **san;
+    unsigned short san_length;
+    unsigned char *ocsp;
     unsigned char *serial_number;
     unsigned int serial_len;
     unsigned char *sign_key;
@@ -1125,6 +1133,8 @@ static unsigned char state_oid[] = {0x55, 0x04, 0x08, 0x00};
 static unsigned char location_oid[] = {0x55, 0x04, 0x07, 0x00};
 static unsigned char entity_oid[] = {0x55, 0x04, 0x0A, 0x00};
 static unsigned char subject_oid[] = {0x55, 0x04, 0x03, 0x00};
+static unsigned char san_oid[] = {0x55, 0x1D, 0x11, 0x00};
+static unsigned char ocsp_oid[] = {0x2B, 0x06, 0x01, 0x05, 0x05, 0x07, 0x30, 0x01, 0x00};
 
 static unsigned char TLS_RSA_SIGN_RSA_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01, 0x00};
 static unsigned char TLS_RSA_SIGN_MD5_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04, 0x00};
@@ -2506,25 +2516,22 @@ struct TLSCertificate *tls_create_certificate() {
     return cert;
 }
 
-int tls_certificate_valid_subject(struct TLSCertificate *cert, const char *subject) {
-    if (!cert)
-        return certificate_unknown;
-    
+int tls_certificate_valid_subject_name(const unsigned char *cert_subject, const char *subject) {
     // no subjects ...
-    if (((!cert->subject) || (!cert->subject[0])) && ((!subject) || (!subject[0])))
+    if (((!cert_subject) || (!cert_subject[0])) && ((!subject) || (!subject[0])))
         return 0;
     
     if ((!subject) || (!subject[0]))
         return bad_certificate;
     
-    if ((!cert->subject) || (!cert->subject[0]))
+    if ((!cert_subject) || (!cert_subject[0]))
         return bad_certificate;
     
     // exact match
-    if (!strcmp((const char *)cert->subject, subject))
+    if (!strcmp((const char *)cert_subject, subject))
         return 0;
     
-    const char *wildcard = strchr((const char *)cert->subject, '*');
+    const char *wildcard = strchr((const char *)cert_subject, '*');
     if (wildcard) {
         // 6.4.3 (1) The client SHOULD NOT attempt to match a presented identifier in
         // which the wildcard character comprises a label other than the left-most label
@@ -2556,6 +2563,21 @@ int tls_certificate_valid_subject(struct TLSCertificate *cert, const char *subje
     }
     
     return bad_certificate;
+}
+
+int tls_certificate_valid_subject(struct TLSCertificate *cert, const char *subject) {
+    int i;
+    if (!cert)
+        return certificate_unknown;
+    int err = tls_certificate_valid_subject_name(cert->subject, subject);
+    if ((err) && (cert->san)) {
+        for (i = 0; i < cert->san_length; i++) {
+            err = tls_certificate_valid_subject_name(cert->san[i], subject);
+            if (!err)
+                return err;
+        }
+    }
+    return err;
 }
 
 int tls_certificate_is_valid(struct TLSCertificate *cert) {
@@ -2652,16 +2674,26 @@ char *tls_certificate_to_string(struct TLSCertificate *cert, char *buffer, int l
         return NULL;
     buffer[0] = 0;
     if (cert->version) {
-        int res = snprintf(buffer, len, "X.509v%i certificate\n  Issued by: [%s]%s (%s)\n  Issued to: [%s]%s (%s, %s)\n  Subject: %s\n  Validity: %s - %s\n  Serial number: ",
+        int res = snprintf(buffer, len, "X.509v%i certificate\n  Issued by: [%s]%s (%s)\n  Issued to: [%s]%s (%s, %s)\n  Subject: %s\n  Validity: %s - %s\n  OCSP: %s\n  Serial number: ",
                            (int)cert->version,
                            cert->issuer_country, cert->issuer_entity, cert->issuer_subject,
                            cert->country, cert->entity, cert->state, cert->location,
                            cert->subject,
-                           cert->not_before, cert->not_after
+                           cert->not_before, cert->not_after,
+                           cert->ocsp
                            );
         if (res > 0) {
             for (i = 0; i < cert->serial_len; i++)
                 res += snprintf(buffer + res, len - res, "%02x", (int)cert->serial_number[i]);
+        }
+        if ((cert->san) && (cert->san_length)) {
+            res += snprintf(buffer + res, len - res, "\n  Alternative subjects: ");
+            for (i = 0; i < cert->san_length; i++) {
+                if (i)
+                    res += snprintf(buffer + res, len - res, ", %s", (int)cert->san[i]);
+                else
+                    res += snprintf(buffer + res, len - res, "%s", (int)cert->san[i]);
+            }
         }
         res += snprintf(buffer + res, len - res, "\n  Key (%i bits, ", cert->pk_len * 8);
         if (res > 0) {
@@ -2865,6 +2897,7 @@ void tls_certificate_set_algorithm(unsigned int *algorithm, const unsigned char 
 
 void tls_destroy_certificate(struct TLSCertificate *cert) {
     if (cert) {
+        int i;
         TLS_FREE(cert->exponent);
         TLS_FREE(cert->pk);
         TLS_FREE(cert->issuer_country);
@@ -2876,6 +2909,11 @@ void tls_destroy_certificate(struct TLSCertificate *cert) {
         TLS_FREE(cert->state);
         TLS_FREE(cert->location);
         TLS_FREE(cert->subject);
+        for (i = 0; i < cert->san_length; i++) {
+            TLS_FREE(cert->san[i]);
+        }
+        TLS_FREE(cert->san);
+        TLS_FREE(cert->ocsp);
         TLS_FREE(cert->serial_number);
         TLS_FREE(cert->entity);
         TLS_FREE(cert->not_before);
@@ -6338,12 +6376,26 @@ int tls_certificate_chain_is_valid_root(struct TLSContext *context, struct TLSCe
     return bad_certificate;
 }
 
-int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert, const unsigned char *buffer, int size, int level, unsigned int *fields, unsigned char *has_key, int client_cert, unsigned char *top_oid) {
+int __private_is_oid(struct __private_OID_chain *ref_chain, unsigned char *looked_oid, int looked_oid_len) {
+    while (ref_chain) {
+        if (ref_chain->oid) {
+            if (__is_oid2(ref_chain->oid, looked_oid, 16, looked_oid_len))
+                return 1;
+        }
+        ref_chain = (struct __private_OID_chain *)ref_chain->top;
+    }
+    return 0;
+}
+
+int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert, const unsigned char *buffer, int size, int level, unsigned int *fields, unsigned char *has_key, int client_cert, unsigned char *top_oid, struct __private_OID_chain *chain) {
+    struct __private_OID_chain local_chain;
+    local_chain.top = chain;
     int pos = 0;
     // X.690
     int idx = 0;
     unsigned char oid[16];
     memset(oid, 0, 16);
+    local_chain.oid = oid;
     if (has_key)
         *has_key = 0;
     unsigned char local_has_key = 0;
@@ -6413,7 +6465,7 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                     DEBUG_PRINT("CONSTRUCT TYPE %02X\n", (int)type);
             }
             local_has_key = 0;
-            __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid);
+            __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid, &local_chain);
             if ((((local_has_key) && (context) && ((!context->is_server) || (client_cert))) || (!context)) && (__is_field(fields, pk_id))) {
                 TLS_FREE(cert->der_bytes);
                 temp = length + (pos - start_pos);
@@ -6462,6 +6514,18 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                     }
                     DEBUG_PRINT("INTEGER(%i): ", length);
                     DEBUG_DUMP_HEX(&buffer[pos], length);
+                    if ((chain) && (length > 2)) {
+                        if (__private_is_oid(chain, san_oid, sizeof(san_oid) - 1)) {
+                            cert->san = (unsigned char **)TLS_REALLOC(cert->san, sizeof(unsigned char *) * (cert->san_length + 1));
+                            if (cert->san) {
+                                cert->san[cert->san_length] = NULL;
+                                tls_certificate_set_copy(&cert->san[cert->san_length], &buffer[pos], length);
+                                DEBUG_PRINT(" => SUBJECT ALTERNATIVE NAME: %s", cert->san[cert->san_length ]);
+                                cert->san_length++;
+                            } else
+                                cert->san_length = 0;
+                        }
+                    }
                     DEBUG_PRINT("\n");
                     break;
                 case 0x03:
@@ -6476,9 +6540,9 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                         tls_certificate_set_key(cert, &buffer[pos], length);
                     } else {
                         if ((buffer[pos] == 0x00) && (length > 256))
-                            __private_asn1_parse(context, cert, &buffer[pos]+1, length - 1, level + 1, fields, &local_has_key, client_cert, top_oid);
+                            __private_asn1_parse(context, cert, &buffer[pos]+1, length - 1, level + 1, fields, &local_has_key, client_cert, top_oid, &local_chain);
                         else
-                            __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid);
+                            __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid, &local_chain);
                         
                         if (top_oid) {
                             if (__is_oid2(top_oid, TLS_EC_prime256v1_OID, sizeof(oid), sizeof(TLS_EC_prime256v1) - 1)) {
@@ -6505,7 +6569,7 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                         DEBUG_PRINT("\n");
                         tls_certificate_set_priv(cert, &buffer[pos], length);
                     } else
-                        __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid);
+                        __private_asn1_parse(context, cert, &buffer[pos], length, level + 1, fields, &local_has_key, client_cert, top_oid, &local_chain);
                     break;
                 case 0x05:
                     DEBUG_PRINT("NULL\n");
@@ -6524,6 +6588,10 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                     DEBUG_PRINT("OBJECT IDENTIFIER(%i): ", length);
                     DEBUG_DUMP_HEX(&buffer[pos], length);
                     DEBUG_PRINT("\n");
+                    // check previous oid
+                    if (__is_oid2(oid, ocsp_oid, 16, sizeof(ocsp_oid) - 1))
+                        tls_certificate_set_copy(&cert->ocsp, &buffer[pos], length);
+
                     if (length < 16)
                         memcpy(oid, &buffer[pos], length);
                     else
@@ -6641,9 +6709,9 @@ struct TLSCertificate *asn1_parse(struct TLSContext *context, const unsigned cha
             // private key
             unsigned char top_oid[16];
             memset(top_oid, 0, sizeof(top_oid));
-            __private_asn1_parse(context, cert, buffer, size, 1, fields, NULL, client_cert, top_oid);
+            __private_asn1_parse(context, cert, buffer, size, 1, fields, NULL, client_cert, top_oid, NULL);
         } else
-            __private_asn1_parse(context, cert, buffer, size, 1, fields, NULL, client_cert, NULL);
+            __private_asn1_parse(context, cert, buffer, size, 1, fields, NULL, client_cert, NULL, NULL);
     }
     return cert;
 }
@@ -7406,7 +7474,7 @@ int tls_default_verify(struct TLSContext *context, struct TLSCertificate **certi
         return err;
     
     // check certificate subject
-    if ((!context->is_server) && (context->sni) && (len > 0)) {
+    if ((!context->is_server) && (context->sni) && (len > 0) && (certificate_chain)) {
         err = tls_certificate_valid_subject(certificate_chain[0], context->sni);
         if (err)
             return err;
