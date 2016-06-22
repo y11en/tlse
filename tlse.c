@@ -822,7 +822,7 @@ struct TLSCertificate {
     unsigned char *location;
     unsigned char *entity;
     unsigned char **subjects;
-    unsigned int subjects_count;
+    unsigned short subjects_count;
     unsigned char *serial_number;
     unsigned int serial_len;
     unsigned char *sign_key;
@@ -2563,10 +2563,9 @@ int tls_certificate_valid_subject(struct TLSCertificate *cert, const char *subje
     if (!cert)
         return certificate_unknown;
     
-    for (i=0;i<cert->subjects_count;i++) {
-        if (tls_certificate_subject_match(cert->subjects[i], subject) == 0) {
+    for (i=0; i < cert->subjects_count; i++) {
+        if (tls_certificate_subject_match(cert->subjects[i], subject) == 0)
             return 0;
-        }
     }
     return bad_certificate;
 }
@@ -2665,13 +2664,25 @@ char *tls_certificate_to_string(struct TLSCertificate *cert, char *buffer, int l
         return NULL;
     buffer[0] = 0;
     if (cert->version) {
+        char subject[0xFFF];
+        subject[0] = 0;
+        int remaining = sizeof(subject);
+        int subject_pos = 0;
+        if (cert->subjects) {
+            for (i = 0; i < cert->subjects_count; i++)
+                if (i)
+                    subject_pos += snprintf(subject + subject_pos, sizeof(subject) - subject_pos, ", %s", cert->subjects[i]);
+                else
+                    subject_pos += snprintf(subject + subject_pos, sizeof(subject) - subject_pos, "%s", cert->subjects[i]);
+        }
         int res = snprintf(buffer, len, "X.509v%i certificate\n  Issued by: [%s]%s (%s)\n  Issued to: [%s]%s (%s, %s)\n  Subject: %s\n  Validity: %s - %s\n  Serial number: ",
                            (int)cert->version,
                            cert->issuer_country, cert->issuer_entity, cert->issuer_subject,
                            cert->country, cert->entity, cert->state, cert->location,
-                           cert->subjects[0],
+                           subject,
                            cert->not_before, cert->not_after
                            );
+
         if (res > 0) {
             for (i = 0; i < cert->serial_len; i++)
                 res += snprintf(buffer + res, len - res, "%02x", (int)cert->serial_number[i]);
@@ -2889,7 +2900,7 @@ void tls_destroy_certificate(struct TLSCertificate *cert) {
         TLS_FREE(cert->country);
         TLS_FREE(cert->state);
         TLS_FREE(cert->location);
-        for (i=0;i<cert->subjects_count;i++) {
+        for (i = 0; i < cert->subjects_count; i++) {
             TLS_FREE(cert->subjects[i]);
         }
         TLS_FREE(cert->subjects);
@@ -6478,7 +6489,7 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                             tls_certificate_set_priv(cert, &buffer[pos], length);
                     }
                     if (san_state==2) {
-                        cert->subjects = TLS_REALLOC(cert->subjects, sizeof(unsigned char *) * (cert->subjects_count+1));
+                        cert->subjects = TLS_REALLOC(cert->subjects, sizeof(unsigned char *) * (cert->subjects_count + 1));
                         cert->subjects[cert->subjects_count] = NULL;
                         tls_certificate_set_copy(&cert->subjects[cert->subjects_count], &buffer[pos], length);
                         cert->subjects_count++;
@@ -6625,7 +6636,7 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                             tls_certificate_set_copy(&cert->entity, &buffer[pos], length);
                         else
                         if (__is_oid(oid, subject_oid, 3)) {
-                            cert->subjects = TLS_REALLOC(cert->subjects, sizeof(unsigned char *) * (cert->subjects_count+1));
+                            cert->subjects = TLS_REALLOC(cert->subjects, sizeof(unsigned char *) * (cert->subjects_count + 1));
                             cert->subjects[cert->subjects_count] = NULL;
                             tls_certificate_set_copy(&cert->subjects[cert->subjects_count], &buffer[pos], length);
                             cert->subjects_count++;
