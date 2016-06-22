@@ -6488,7 +6488,7 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                         if (__is_field(fields_temp, priv_id))
                             tls_certificate_set_priv(cert, &buffer[pos], length);
                     }
-                    if (san_state==2) {
+                    if ((san_state == 2) && (client_cert != -1)) {
                         cert->subjects = TLS_REALLOC(cert->subjects, sizeof(unsigned char *) * (cert->subjects_count + 1));
                         cert->subjects[cert->subjects_count] = NULL;
                         tls_certificate_set_copy(&cert->subjects[cert->subjects_count], &buffer[pos], length);
