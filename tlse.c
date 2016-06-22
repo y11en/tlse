@@ -61,7 +61,7 @@
 #define DEBUG_DUMP_HEX(buf, len)    {int i; for (i = 0; i < len; i++) { DEBUG_PRINT("%02X ", (unsigned int)(buf)[i]); } }
 #define DEBUG_INDEX(fields)         print_index(fields)
 #define DEBUG_DUMP(buf, length)     fwrite(buf, 1, length, stderr);
-#define DEBUG_DUMP_HEX_LABEL(title, buf, len)    {fprintf(stderr, "%s: ", title); DEBUG_DUMP_HEX(buf, len); fprintf(stderr, "\n");}
+#define DEBUG_DUMP_HEX_LABEL(title, buf, len)    {fprintf(stderr, "%s (%i): ", title, (int)len); DEBUG_DUMP_HEX(buf, len); fprintf(stderr, "\n");}
 #else
 #define DEBUG_PRINT(...)            { }
 #define DEBUG_DUMP_HEX(buf, len)    { }
@@ -4699,6 +4699,8 @@ struct TLSPacket *tls_certificate_request(struct TLSContext *context) {
         tls_packet_uint8(packet, 0x0D);
         unsigned char dummy[3];
         tls_packet_append(packet, dummy, 3);
+        if (context->dtls)
+            __private_dtls_handshake_data(context, packet, 0);
         int start_len = packet->len;
         tls_packet_uint8(packet, 1);
         tls_packet_uint8(packet, rsa_sign);
@@ -4728,6 +4730,11 @@ struct TLSPacket *tls_certificate_request(struct TLSContext *context) {
             packet->buf[payload_pos + 1] = remaining / 0x100;
             remaining %= 0x100;
             packet->buf[payload_pos + 2] = remaining;
+
+            if (context->dtls) {
+                __private_dtls_handshake_copyframesize(context, packet);
+                context->dtls_seq++;
+            }
         }
         tls_packet_update(packet);
     }
@@ -5546,6 +5553,8 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
             case 0x00:
                 CHECK_HANDSHAKE_STATE(context, 0, 1);
                 DEBUG_PRINT(" => HELLO REQUEST (RENEGOTIATION?)\n");
+                if (context->dtls)
+                    context->dtls_seq = 0;
                 if (context->is_server)
                     payload_res = TLS_UNEXPECTED_MESSAGE;
                 else {
@@ -6892,6 +6901,7 @@ struct TLSPacket *tls_build_finished(struct TLSContext *context) {
     }
     tls_packet_append(packet, out, __TLS_MIN_FINISHED_OPAQUE_LEN);
     tls_packet_update(packet);
+    DEBUG_DUMP_HEX_LABEL("VERIFY DATA", out, __TLS_MIN_FINISHED_OPAQUE_LEN);
 #ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
     if (context->is_server) {
         // concatenate client verify and server verify
@@ -6925,8 +6935,10 @@ struct TLSPacket *tls_build_done(struct TLSContext *context) {
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0E);
     tls_packet_uint24(packet, 0);
-    if (context->dtls)
+    if (context->dtls) {
         __private_dtls_handshake_data(context, packet, 0);
+        context->dtls_seq++;
+    }
     tls_packet_update(packet);
     return packet;
 }
