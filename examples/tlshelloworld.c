@@ -64,7 +64,7 @@ int verify_signature(struct TLSContext *context, struct TLSCertificate **certifi
     if (len) {
         struct TLSCertificate *cert = certificate_chain[0];
         if (cert) {
-            snprintf(identity_str, sizeof(identity_str), "%s, %s(%s) (issued by: %s)", cert->subjects[0], cert->entity, cert->location, cert->issuer_entity);
+            snprintf(identity_str, sizeof(identity_str), "%s, %s(%s) (issued by: %s)", cert->subject, cert->entity, cert->location, cert->issuer_entity);
             fprintf(stderr, "Verified: %s\n", identity_str);
         }
     }
