@@ -6805,8 +6805,9 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
 struct TLSPacket *tls_build_finished(struct TLSContext *context) {
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x14);
-    
     tls_packet_uint24(packet, __TLS_MIN_FINISHED_OPAQUE_LEN);
+    if (context->dtls)
+        __private_dtls_handshake_data(context, packet, __TLS_MIN_FINISHED_OPAQUE_LEN);
     // verify
     unsigned char hash[__TLS_MAX_HASH_SIZE];
     unsigned char out[__TLS_MIN_FINISHED_OPAQUE_LEN];
@@ -6822,8 +6823,6 @@ struct TLSPacket *tls_build_finished(struct TLSContext *context) {
         __private_tls_prf(context, out, __TLS_MIN_FINISHED_OPAQUE_LEN, context->master_key, context->master_key_len, (unsigned char *)"client finished", 15, hash, hash_len, NULL, 0);
     }
     tls_packet_append(packet, out, __TLS_MIN_FINISHED_OPAQUE_LEN);
-    if (context->dtls)
-        __private_dtls_handshake_data(context, packet, __TLS_MIN_FINISHED_OPAQUE_LEN);
     tls_packet_update(packet);
 #ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
     if (context->is_server) {
