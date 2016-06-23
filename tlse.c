@@ -4811,6 +4811,14 @@ int __private_dtls_check_packet(const unsigned char *buf, int buf_len) {
     return bytes_to_follow;
 }
 
+void __private_dtls_reset(struct TLSContext *context) {
+    context->dtls_epoch_local = 0;
+    context->dtls_epoch_remote = 0;
+    context->dtls_seq = 0;
+    __private_tls_destroy_hash(context);
+    context->connection_status = 0;
+}
+
 int tls_parse_verify_request(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets) {
     *write_packets = 0;
     if ((context->connection_status != 0) || (!context->dtls)) {
@@ -4827,23 +4835,22 @@ int tls_parse_verify_request(struct TLSContext *context, const unsigned char *bu
     res += 2;
     unsigned char len = buf[res];
     res++;
-    CHECK_SIZE(len, buf_len - res, TLS_NEED_MORE_DATA)
-    TLS_FREE(context->dtls_cookie);
-    context->dtls_cookie = TLS_MALLOC(len);
-    if (!context->dtls_cookie) {
-        context->dtls_cookie_len = 0;
-        return TLS_NO_MEMORY;
+    if (len) {
+        CHECK_SIZE(len, buf_len - res, TLS_NEED_MORE_DATA)
+        TLS_FREE(context->dtls_cookie);
+        context->dtls_cookie = TLS_MALLOC(len);
+        if (!context->dtls_cookie) {
+            context->dtls_cookie_len = 0;
+            return TLS_NO_MEMORY;
+        }
+        context->dtls_cookie_len = len;
+        memcpy(context->dtls_cookie, &buf[res], len);
+        res += len;
+        *write_packets = 4;
     }
-    context->dtls_cookie_len = len;
-    memcpy(context->dtls_cookie, &buf[res], len);
-    res += len;
-    *write_packets = 4;
 
     // reset context
-    context->dtls_epoch_local = 0;
-    context->dtls_epoch_remote = 0;
-    context->dtls_seq = 0;
-    __private_tls_destroy_hash(context);
+    __private_dtls_reset(context);
     return res;
 }
 
@@ -5266,13 +5273,13 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
     res += 3;
     if (context->dtls)
         res += 8;
+    int packet_start = res;
     const unsigned char *packet_ref = buf + res;
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
     if (!size)
         return res;
     
-    DEBUG_DUMP_HEX_LABEL("BYTES", buf, buf_len);
     unsigned char has_ds_params = 0;
 #ifdef TLS_FORWARD_SECRECY
     const struct ECCCurveParameters *curve = NULL;
@@ -5355,12 +5362,14 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         res += dh_res;
         DEBUG_PRINT("\n");
     }
-    DEBUG_PRINT("          SIGNATURE: ");
     int sign_size;
     int hash_algorithm;
     int sign_algorithm;
     int packet_size = res - 3;
+    if (context->dtls)
+        packet_size -= 8;
     int offset = 0;
+    DEBUG_PRINT("          SIGNATURE (%i/%i/%i): ", packet_size, dh_res, key_size);
     const unsigned char *signature = __private_tls_parse_signature(context, &buf[res], buf_len - res, &hash_algorithm, &sign_algorithm, &sign_size, &offset);
     DEBUG_PRINT("\n");
     if ((sign_size <= 0) || (!signature))
@@ -5376,7 +5385,9 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         memcpy(message, context->local_random, __TLS_CLIENT_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->remote_random, __TLS_SERVER_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet_ref, packet_size);
-        
+
+DEBUG_PRINT("START: %i => %i\n", packet_start, packet_size);
+
         if (__private_tls_verify_rsa(context, hash_algorithm, signature, sign_size, message, message_len) != 1) {
             DEBUG_PRINT("Server signature FAILED!\n");
             TLS_FREE(message);
@@ -5849,6 +5860,7 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 // server handshake
                 if ((context->dtls) && (dtls_cookie_verified == 0)) {
                     __private_tls_write_packet(tls_build_verify_request(context));
+                    __private_dtls_reset(context);
                 } else {
                     DEBUG_PRINT("<= SENDING SERVER HELLO\n");
                     __private_tls_write_packet(tls_build_hello(context));
