@@ -4267,6 +4267,8 @@ struct TLSPacket *tls_build_client_key_exchange(struct TLSContext *context) {
             __private_tls_dhe_free(context);
             DEBUG_DUMP_HEX_LABEL("Yc", dh_Ys, dh_Ys_len);
             tls_packet_uint24(packet, dh_Ys_len + 2);
+            if (context->dtls)
+                __private_dtls_handshake_data(context, packet, dh_Ys_len + 2);
             tls_packet_uint16(packet, dh_Ys_len);
             tls_packet_append(packet, dh_Ys, dh_Ys_len);
         } else
@@ -4281,6 +4283,10 @@ struct TLSPacket *tls_build_client_key_exchange(struct TLSContext *context) {
             }
             __private_tls_ecc_dhe_free(context);
             tls_packet_uint24(packet, out_len + 1);
+            if (context->dtls) {
+                __private_dtls_handshake_data(context, packet, out_len + 1);
+                context->dtls_seq++;
+            }
             tls_packet_uint8(packet, out_len);
             tls_packet_append(packet, out, out_len);
         }
@@ -4832,6 +4838,12 @@ int tls_parse_verify_request(struct TLSContext *context, const unsigned char *bu
     memcpy(context->dtls_cookie, &buf[res], len);
     res += len;
     *write_packets = 4;
+
+    // reset context
+    context->dtls_epoch_local = 0;
+    context->dtls_epoch_remote = 0;
+    context->dtls_seq = 0;
+    __private_tls_destroy_hash(context);
     return res;
 }
 
