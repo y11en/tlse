@@ -4932,6 +4932,9 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 context->dtls_seq++;
                 *dtls_verified = 1;
                 res += tls_cookie_len;
+            } else {
+                *write_packets = 2;
+                return buf_len;
             }
         }
         CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
