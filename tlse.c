@@ -3166,7 +3166,10 @@ void tls_packet_update(struct TLSPacket *packet) {
                             // version (2 bytes)
                             // length (2 bytes)
                             unsigned char aad[13];
-                            *((uint64_t *)aad) = htonll(packet->context->local_sequence_number);
+                            if (packet->context->dtls)
+                                *((uint64_t *)aad) = *(uint64_t *)&packet->buf[3];
+                            else
+                                *((uint64_t *)aad) = htonll(packet->context->local_sequence_number);
                             aad[8] = packet->buf[0];
                             aad[9] = packet->buf[1];
                             aad[10] = packet->buf[2];
@@ -7190,7 +7193,10 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
     tls_packet_uint32(packet, context->application_buffer_len);
     tls_packet_append(packet, context->application_buffer, context->application_buffer_len);
     tls_packet_uint8(packet, context->dtls);
-    
+    if (context->dtls) {
+        tls_packet_uint16(packet, context->dtls_epoch_local);
+        tls_packet_uint16(packet, context->dtls_epoch_remote);
+    }
     tls_packet_update(packet);
     unsigned int size = packet->len;
     if ((buffer) && (buf_len)) {
@@ -7380,6 +7386,12 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
         TLS_IMPORT_CHECK_SIZE(buf_pos, 1, buf_len)
         context->dtls = buffer[buf_pos];
         buf_pos++;
+        if (context->dtls) {
+            TLS_IMPORT_CHECK_SIZE(buf_pos, 4, buf_len)
+            context->dtls_epoch_local = ntohs(*(unsigned short *)&buffer[buf_pos]);
+            buf_pos += 2;
+            context->dtls_epoch_remote = ntohs(*(unsigned short *)&buffer[buf_pos]);
+        }
     }
     return context;
 }
