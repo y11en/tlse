@@ -4840,10 +4840,9 @@ int tls_parse_verify_request(struct TLSContext *context, const unsigned char *bu
     if (len) {
         CHECK_SIZE(len, buf_len - res, TLS_NEED_MORE_DATA)
         context->dtls_cookie = (unsigned char *)TLS_MALLOC(len);
-        if (!context->dtls_cookie) {
-            context->dtls_cookie_len = 0;
+        if (!context->dtls_cookie)
             return TLS_NO_MEMORY;
-        }
+        context->dtls_cookie_len = len;
         memcpy(context->dtls_cookie, &buf[res], len);
         res += len;
         *write_packets = 4;
@@ -4875,6 +4874,9 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
     if (context->dtls) {
+        int dtls_check = __private_dtls_check_packet(buf, buf_len);
+        if (dtls_check < 0)
+            return dtls_check;
         // 16 bit message seq + 24 bit fragment offset + 24 bit fragment length
         res += 8;
     }
@@ -5078,8 +5080,12 @@ int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, 
         return 3 + size_of_all_certificates;
     res += 3;
 
-    if (context->dtls)
+    if (context->dtls) {
+        int dtls_check = __private_dtls_check_packet(buf, buf_len);
+        if (dtls_check < 0)
+            return dtls_check;
         res += 8;
+    }
 
     CHECK_SIZE(size_of_all_certificates, buf_len - res, TLS_NEED_MORE_DATA);
     int size = size_of_all_certificates;
@@ -5271,8 +5277,12 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
     CHECK_SIZE(3, buf_len, TLS_NEED_MORE_DATA)
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
-    if (context->dtls)
+    if (context->dtls) {
+        int dtls_check = __private_dtls_check_packet(buf, buf_len);
+        if (dtls_check < 0)
+            return dtls_check;
         res += 8;
+    }
     const unsigned char *packet_ref = buf + res;
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
@@ -5458,8 +5468,12 @@ int tls_parse_client_key_exchange(struct TLSContext *context, const unsigned cha
     
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
-    if (context->dtls)
+    if (context->dtls) {
+        int dtls_check = __private_dtls_check_packet(buf, buf_len);
+        if (dtls_check < 0)
+            return dtls_check;
         res += 8;
+    }
 
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
 
@@ -5484,8 +5498,12 @@ int tls_parse_server_hello_done(struct TLSContext *context, const unsigned char 
     
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
-    if (context->dtls)
+    if (context->dtls) {
+        int dtls_check = __private_dtls_check_packet(buf, buf_len);
+        if (dtls_check < 0)
+            return dtls_check;
         res += 8;
+    }
     
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
@@ -5505,8 +5523,12 @@ int tls_parse_finished(struct TLSContext *context, const unsigned char *buf, int
     
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
-    if (context->dtls)
+    if (context->dtls) {
+        int dtls_check = __private_dtls_check_packet(buf, buf_len);
+        if (dtls_check < 0)
+            return dtls_check;
         res += 8;
+    }
     
     if (size < __TLS_MIN_FINISHED_OPAQUE_LEN) {
         DEBUG_PRINT("Invalid finished pachet size: %i\n", size);
