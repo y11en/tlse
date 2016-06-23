@@ -3126,7 +3126,8 @@ void tls_packet_update(struct TLSPacket *packet) {
                                     unsigned char temp_buf[5];
                                     memcpy(temp_buf, packet->buf, 3);
                                     *(unsigned short *)&temp_buf[3] = *(unsigned short *)&packet->buf[header_size - 2];
-                                    __private_tls_hmac_message(1, packet->context, temp_buf, 5, packet->buf + header_size, length  - header_size, buf + buf_pos, mac_size, 0);
+                                    uint64_t dtls_sequence_number = ntohll(*(uint64_t *)&packet->buf[3]);
+                                    __private_tls_hmac_message(1, packet->context, temp_buf, 5, packet->buf + header_size, packet->len  - header_size, buf + buf_pos, mac_size, dtls_sequence_number);
                                 } else
                                     __private_tls_hmac_message(1, packet->context, packet->buf, packet->len, NULL, 0, buf + buf_pos, mac_size, 0);
                                 buf_pos += mac_size;
@@ -5820,11 +5821,11 @@ unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *
         return 0;
 
     uint64_t squence_number;
-    if (local)
-        squence_number = htonll(context->local_sequence_number);
-    else
     if (context->dtls)
         squence_number = htonll(remote_sequence_number);
+    else
+    if (local)
+        squence_number = htonll(context->local_sequence_number);
     else
         squence_number = htonll(context->remote_sequence_number);
 
@@ -6880,7 +6881,7 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
 }
 
 struct TLSPacket *tls_build_finished(struct TLSContext *context) {
-    struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
+    struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, __TLS_MIN_FINISHED_OPAQUE_LEN + 64);
     tls_packet_uint8(packet, 0x14);
     tls_packet_uint24(packet, __TLS_MIN_FINISHED_OPAQUE_LEN);
     if (context->dtls)
@@ -6924,7 +6925,7 @@ struct TLSPacket *tls_build_finished(struct TLSContext *context) {
 }
 
 struct TLSPacket *tls_build_change_cipher_spec(struct TLSContext *context) {
-    struct TLSPacket *packet = tls_create_packet(context, TLS_CHANGE_CIPHER, context->version, 0);
+    struct TLSPacket *packet = tls_create_packet(context, TLS_CHANGE_CIPHER, context->version, 64);
     tls_packet_uint8(packet, 1);
     tls_packet_update(packet);
     context->local_sequence_number = 0;
