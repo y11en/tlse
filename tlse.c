@@ -2690,9 +2690,9 @@ char *tls_certificate_to_string(struct TLSCertificate *cert, char *buffer, int l
             res += snprintf(buffer + res, len - res, "\n  Alternative subjects: ");
             for (i = 0; i < cert->san_length; i++) {
                 if (i)
-                    res += snprintf(buffer + res, len - res, ", %s", (int)cert->san[i]);
+                    res += snprintf(buffer + res, len - res, ", %s", cert->san[i]);
                 else
-                    res += snprintf(buffer + res, len - res, "%s", (int)cert->san[i]);
+                    res += snprintf(buffer + res, len - res, "%s", cert->san[i]);
             }
         }
         res += snprintf(buffer + res, len - res, "\n  Key (%i bits, ", cert->pk_len * 8);
@@ -3205,8 +3205,8 @@ void tls_packet_update(struct TLSPacket *packet) {
                             }
 #endif
                             
-                            memcpy(ct, packet->buf, 3);
-                            *(unsigned short *)&ct[3] = htons(ct_pos - header_size);
+                            memcpy(ct, packet->buf, header_size - 2);
+                            *(unsigned short *)&ct[header_size - 2] = htons(ct_pos - header_size);
                             TLS_FREE(packet->buf);
                             packet->buf = ct;
                             packet->len = ct_pos;
