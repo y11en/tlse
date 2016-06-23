@@ -1084,7 +1084,7 @@ struct TLSContext {
     unsigned short dtls_epoch_local;
     unsigned short dtls_epoch_remote;
     unsigned char *dtls_cookie;
-    unsigned short dtls_cookie_len;
+    unsigned char dtls_cookie_len;
     unsigned char dtls_seq;
     unsigned char *cached_handshake;
     unsigned int cached_handshake_len;
@@ -4556,6 +4556,12 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
             }
 #endif
         } else {
+            if (context->dtls) {
+                tls_packet_uint8(packet, context->dtls_cookie_len);
+                if (context->dtls_cookie_len)
+                    tls_packet_append(packet, context->dtls_cookie, context->dtls_cookie_len);
+            }
+
 #ifndef STRICT_TLS
             if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
 #endif
@@ -4784,6 +4790,51 @@ struct TLSPacket *tls_build_verify_request(struct TLSContext *context) {
     return packet;
 }
 
+int __private_dtls_check_packet(const unsigned char *buf, int buf_len) {
+    CHECK_SIZE(11, buf_len, TLS_NEED_MORE_DATA)
+
+    unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
+    unsigned short message_seq = ntohs(*(unsigned short *)&buf[3]);
+    unsigned int fragment_offset = buf[5] * 0x10000 + buf[6] * 0x100 + buf[7];
+    unsigned int fragment_length = buf[8] * 0x10000 + buf[9] * 0x100 + buf[10];
+
+    if ((fragment_offset) || (fragment_length != bytes_to_follow)) {
+        DEBUG_PRINT("FRAGMENTED PACKETS NOT SUPPORTED\n");
+        return TLS_FEATURE_NOT_SUPPORTED;
+    }
+    return bytes_to_follow;
+}
+
+int tls_parse_verify_request(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets) {
+    *write_packets = 0;
+    if ((context->connection_status != 0) || (!context->dtls)) {
+        DEBUG_PRINT("UNEXPECTED VERIFY REQUEST MESSAGE\n");
+        return TLS_UNEXPECTED_MESSAGE;
+    }
+    int res = 11;
+    int bytes_to_follow = __private_dtls_check_packet(buf, buf_len);
+    if (bytes_to_follow < 0)
+        return bytes_to_follow;
+
+    CHECK_SIZE(bytes_to_follow, buf_len - res, TLS_NEED_MORE_DATA)
+    unsigned short version = ntohs(*(unsigned short *)&buf[res]);
+    res += 2;
+    unsigned char len = buf[res];
+    res++;
+    CHECK_SIZE(len, buf_len - res, TLS_NEED_MORE_DATA)
+    TLS_FREE(context->dtls_cookie);
+    context->dtls_cookie = TLS_MALLOC(len);
+    if (!context->dtls_cookie) {
+        context->dtls_cookie_len = 0;
+        return TLS_NO_MEMORY;
+    }
+    context->dtls_cookie_len = len;
+    memcpy(context->dtls_cookie, &buf[res], len);
+    res += len;
+    *write_packets = 4;
+    return res;
+}
+
 int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified) {
     *write_packets = 0;
     *dtls_verified = 0;
@@ -4804,12 +4855,12 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     // big endian
     unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
-    CHECK_SIZE(bytes_to_follow, buf_len - res, TLS_NEED_MORE_DATA)
-    
     if (context->dtls) {
         // 16 bit message seq + 24 bit fragment offset + 24 bit fragment length
         res += 8;
     }
+    CHECK_SIZE(bytes_to_follow, buf_len - res, TLS_NEED_MORE_DATA)
+    
     CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
     unsigned short version = ntohs(*(unsigned short *)&buf[res]);
     
@@ -5007,6 +5058,10 @@ int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, 
     if (size_of_all_certificates <= 4)
         return 3 + size_of_all_certificates;
     res += 3;
+
+    if (context->dtls)
+        res += 8;
+
     CHECK_SIZE(size_of_all_certificates, buf_len - res, TLS_NEED_MORE_DATA);
     int size = size_of_all_certificates;
     
@@ -5197,6 +5252,8 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
     CHECK_SIZE(3, buf_len, TLS_NEED_MORE_DATA)
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
+    if (context->dtls)
+        res += 8;
     const unsigned char *packet_ref = buf + res;
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
@@ -5407,6 +5464,8 @@ int tls_parse_server_hello_done(struct TLSContext *context, const unsigned char 
     
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     res += 3;
+    if (context->dtls)
+        res += 8;
     
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
@@ -5496,6 +5555,7 @@ int tls_parse_verify(struct TLSContext *context, const unsigned char *buf, int b
     unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     CHECK_SIZE(bytes_to_follow, buf_len - 3, TLS_BAD_CERTIFICATE)
     int res = -1;
+
     if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
         unsigned int hash = buf[3];
         unsigned int algorithm = buf[4];
@@ -5606,9 +5666,10 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 break;
                 // hello verify request
             case 0x03:
+                DEBUG_PRINT(" => VERIFY REQUEST\n");
                 CHECK_HANDSHAKE_STATE(context, 3, 1);
                 if ((context->dtls) && (!context->is_server)) {
-                    // to do
+                    payload_res = tls_parse_verify_request(context, buf + 1, payload_size, &write_packets);
                     update_hash = 0;
                 } else
                     payload_res = TLS_UNEXPECTED_MESSAGE;
@@ -5799,6 +5860,11 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 __private_tls_write_packet(tls_build_change_cipher_spec(context));
                 __private_tls_write_packet(tls_build_finished(context));
                 context->connection_status = 0xFF;
+                break;
+            case 4:
+                // dtls only
+                context->dtls_seq = 1;
+                __private_tls_write_packet(tls_build_hello(context));
                 break;
         }
         payload_size++;
