@@ -4580,10 +4580,10 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 // sizeof ciphers (14 ciphers * 2 bytes)
                 tls_packet_uint16(packet, 28);
 #endif
+                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256);
-                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256);
 #ifdef TLS_WITH_CHACHA20_POLY1305
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256);
                 tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256);
