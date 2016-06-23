@@ -4835,15 +4835,15 @@ int tls_parse_verify_request(struct TLSContext *context, const unsigned char *bu
     res += 2;
     unsigned char len = buf[res];
     res++;
+    TLS_FREE(context->dtls_cookie);
+    context->dtls_cookie_len = 0;
     if (len) {
         CHECK_SIZE(len, buf_len - res, TLS_NEED_MORE_DATA)
-        TLS_FREE(context->dtls_cookie);
-        context->dtls_cookie = TLS_MALLOC(len);
+        context->dtls_cookie = (unsigned char *)TLS_MALLOC(len);
         if (!context->dtls_cookie) {
             context->dtls_cookie_len = 0;
             return TLS_NO_MEMORY;
         }
-        context->dtls_cookie_len = len;
         memcpy(context->dtls_cookie, &buf[res], len);
         res += len;
         *write_packets = 4;
@@ -4918,12 +4918,12 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
             if (tls_cookie_len) {
                 CHECK_SIZE(tls_cookie_len, buf_len - res, TLS_NEED_MORE_DATA)
                 if ((context->dtls_cookie_len != tls_cookie_len) || (!context->dtls_cookie)) {
-                    *dtls_verified = -1;
+                    *dtls_verified = 2;
                     DEBUG_PRINT("INVALID DTLS COOKIE\n");
                     return TLS_BROKEN_PACKET;
                 }
                 if (memcmp(context->dtls_cookie, &buf[res], tls_cookie_len)) {
-                    *dtls_verified = -1;
+                    *dtls_verified = 3;
                     DEBUG_PRINT("MISMATCH DTLS COOKIE\n");
                     return TLS_BROKEN_PACKET;
                 }
@@ -5273,7 +5273,6 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
     res += 3;
     if (context->dtls)
         res += 8;
-    int packet_start = res;
     const unsigned char *packet_ref = buf + res;
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
@@ -5385,8 +5384,6 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         memcpy(message, context->local_random, __TLS_CLIENT_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->remote_random, __TLS_SERVER_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet_ref, packet_size);
-
-DEBUG_PRINT("START: %i => %i\n", packet_start, packet_size);
 
         if (__private_tls_verify_rsa(context, hash_algorithm, signature, sign_size, message, message_len) != 1) {
             DEBUG_PRINT("Server signature FAILED!\n");
