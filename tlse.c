@@ -4853,6 +4853,12 @@ int tls_parse_verify_request(struct TLSContext *context, const unsigned char *bu
     return res;
 }
 
+void __private_dtls_reset_cookie(struct TLSContext *context) {
+    TLS_FREE(context->dtls_cookie);
+    context->dtls_cookie = NULL;
+    context->dtls_cookie_len = 0;
+}
+
 int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified) {
     *write_packets = 0;
     *dtls_verified = 0;
@@ -4921,14 +4927,17 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 CHECK_SIZE(tls_cookie_len, buf_len - res, TLS_NEED_MORE_DATA)
                 if ((context->dtls_cookie_len != tls_cookie_len) || (!context->dtls_cookie)) {
                     *dtls_verified = 2;
+                    __private_dtls_reset_cookie(context);
                     DEBUG_PRINT("INVALID DTLS COOKIE\n");
                     return TLS_BROKEN_PACKET;
                 }
                 if (memcmp(context->dtls_cookie, &buf[res], tls_cookie_len)) {
                     *dtls_verified = 3;
+                    __private_dtls_reset_cookie(context);
                     DEBUG_PRINT("MISMATCH DTLS COOKIE\n");
                     return TLS_BROKEN_PACKET;
                 }
+                __private_dtls_reset_cookie(context);
                 context->dtls_seq++;
                 *dtls_verified = 1;
                 res += tls_cookie_len;
