@@ -3179,7 +3179,7 @@ void tls_packet_update(struct TLSPacket *packet) {
 #ifdef TLS_WITH_CHACHA20_POLY1305
                             if (packet->context->crypto.created == 3) {
                                 unsigned int counter = 1;
-                                unsigned char poly1305_key[POLY1305_TAGLEN];
+                                unsigned char poly1305_key[POLY1305_KEYLEN];
 				                chacha_ivupdate(&packet->context->crypto.chacha_local, packet->context->crypto.local_aead_iv, aad, (u8 *)&counter);
                                 chacha20_poly1305_key(&packet->context->crypto.chacha_local, poly1305_key);
                                 ct_pos += chacha20_poly1305_aead(&packet->context->crypto.chacha_local, packet->buf + header_size, pt_length, aad, sizeof(aad), poly1305_key, ct + ct_pos);
@@ -6072,7 +6072,7 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
         if (context->crypto.created == 3) {
             int pt_length = length - POLY1305_TAGLEN;
             unsigned int counter = 1;
-            unsigned char poly1305_key[POLY1305_TAGLEN];
+            unsigned char poly1305_key[POLY1305_KEYLEN];
             unsigned char trail[16];
             unsigned char mac_tag[POLY1305_TAGLEN];
 
@@ -6100,9 +6100,8 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
             DEBUG_DUMP_HEX_LABEL("decrypted", pt, pt_length);
             ptr = pt;
             length = pt_length;
-            
-            chacha20_poly1305_key(&context->crypto.chacha_remote, poly1305_key);
 
+            chacha20_poly1305_key(&context->crypto.chacha_remote, poly1305_key);
             poly1305_context ctx;
             poly1305_init(&ctx, poly1305_key);
             poly1305_update(&ctx, aad, 16);
