@@ -1143,11 +1143,11 @@ static unsigned char TLS_RSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 
 static unsigned char TLS_RSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C, 0x00};
 static unsigned char TLS_RSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D, 0x00};
 
-static unsigned char TLS_ECDSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x01, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA224_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03, 0x05, 0x00, 0x00};
-static unsigned char TLS_ECDSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04, 0x05, 0x00, 0x00};
+// static unsigned char TLS_ECDSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x01, 0x05, 0x00, 0x00};
+// static unsigned char TLS_ECDSA_SIGN_SHA224_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01, 0x05, 0x00, 0x00};
+// static unsigned char TLS_ECDSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x05, 0x00, 0x00};
+// static unsigned char TLS_ECDSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03, 0x05, 0x00, 0x00};
+// static unsigned char TLS_ECDSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04, 0x05, 0x00, 0x00};
 
 static unsigned char TLS_EC_PUBLIC_KEY_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01, 0x00};
 
@@ -1341,7 +1341,7 @@ unsigned char *__private_tls_decrypt_dhe(struct TLSContext *context, const unsig
     }
     DEBUG_PRINT("OUT_SIZE: %i\n", out_size);
     DEBUG_DUMP_HEX_LABEL("DHE", out, out_size);
-    *size = out_size;
+    *size = (unsigned int)out_size;
     return out;
 }
 
@@ -1380,7 +1380,7 @@ unsigned char *__private_tls_decrypt_ecc_dhe(struct TLSContext *context, const u
     }
     DEBUG_PRINT("OUT_SIZE: %i\n", out_size);
     DEBUG_DUMP_HEX_LABEL("ECC DHE", out, out_size);
-    *size = out_size;
+    *size = (unsigned int)out_size;
     return out;
 }
 #endif
@@ -1411,7 +1411,7 @@ unsigned char *__private_tls_decrypt_rsa(struct TLSContext *context, const unsig
         TLS_FREE(out);
         return NULL;
     }
-    *size = out_size;
+    *size = (unsigned int)out_size;
     return out;
 }
 
@@ -1441,7 +1441,7 @@ unsigned char *__private_tls_encrypt_rsa(struct TLSContext *context, const unsig
         TLS_FREE(out);
         return NULL;
     }
-    *size = out_size;
+    *size = (unsigned int)out_size;
     return out;
 }
 
@@ -1837,9 +1837,6 @@ error:
 }
 
 int __private_tls_ecc_import_key(const unsigned char *private_key, int private_len, const unsigned char *public_key, int public_len, ecc_key *key, const ltc_ecc_set_type *dp) {
-    //return ecc_import_ex(buffer, len, key, dp);
-    unsigned long key_size;
-    unsigned char flags[1];
     int           err;
     
     if ((!key) || (!ltc_mp.name))
@@ -2156,7 +2153,7 @@ void __private_tls_prf(struct TLSContext *context,
             
             unsigned int copylen = outlen;
             if (copylen > dlen)
-                copylen = dlen;
+                copylen = (unsigned int)dlen;
             
             for (i = 0; i < copylen; i++) {
                 output[idx++] = digest_out1[i];
@@ -5406,10 +5403,7 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
     // check signature
     unsigned int message_len = packet_size + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE;
     unsigned char *message = (unsigned char *)TLS_MALLOC(message_len);
-    if (message) {
-        unsigned char out[__TLS_MAX_RSA_KEY];
-        unsigned long out_len = __TLS_MAX_RSA_KEY;
-        
+    if (message) {        
         memcpy(message, context->local_random, __TLS_CLIENT_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->remote_random, __TLS_SERVER_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet_ref, packet_size);
@@ -5442,13 +5436,13 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
             return TLS_GENERIC_ERROR;
         }
         
-        unsigned int key_size = 0;
-        unsigned char *key = __private_tls_decrypt_dhe(context, dh_Ys, dh_Ys_len, &key_size, 0);
-        DEBUG_DUMP_HEX_LABEL("DH COMMON SECRET", key, key_size);
-        if ((key) && (key_size)) {
+        unsigned int dh_key_size = 0;
+        unsigned char *key = __private_tls_decrypt_dhe(context, dh_Ys, dh_Ys_len, &dh_key_size, 0);
+        DEBUG_DUMP_HEX_LABEL("DH COMMON SECRET", key, dh_key_size);
+        if ((key) && (dh_key_size)) {
             TLS_FREE(context->premaster_key);
             context->premaster_key = key;
-            context->premaster_key_len = key_size;
+            context->premaster_key_len = dh_key_size;
         }
     } else
     if ((ephemeral == 2) && (curve) && (pk_key) && (key_size)) {
@@ -6502,7 +6496,7 @@ int tls_certificate_chain_is_valid_root(struct TLSContext *context, struct TLSCe
     if ((!certificates) || (!len) || (!context->root_certificates) || (!context->root_count))
         return bad_certificate;
     int i;
-    int j;
+    unsigned int j;
     for (i = 0; i < len; i++) {
         for (j = 0; j < context->root_count; j++) {
             // check if root certificate expired
