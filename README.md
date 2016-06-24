@@ -1,6 +1,6 @@
 # TLSe
 
-Single C file TLS 1.2 (also 1.1 and 1.0) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
+Single C file TLS 1.2 (also 1.1 and 1.0) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. It also supports DTLS 1.2 and 1.0, over SCTP. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
 
 Compiling
 ----------
@@ -63,6 +63,11 @@ Examples
 4. [examples/tlssimpleserver.c](https://github.com/eduardsui/tlslayer/blob/master/examples/tlssimpleserver.c) simple blocking server using libssl-ish API
 
 After compiling the examples, in the working directory, you should put fullchain.pem and privkey.pem in a directory called testcert for running the server examples. I've used [letsencrypt](https://github.com/letsencrypt/letsencrypt) for certificate generation (is free!).
+
+Important security note
+----------
+
+Note that for DTLS, it doesn't implement a state machine, so using this DTLS implementation with UDP (server) may expose your server to DoS attack. The DTLS implementation in this library is meant to be used EXCLUSIVELY over SCTP sockets.
 
 License
 ----------
