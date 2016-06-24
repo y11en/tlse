@@ -4898,9 +4898,16 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     // when no legacy support, don't downgrade
 #ifndef TLS_FORCE_LOCAL_VERSION
     // downgrade ?
-    if (context->version > version) {
+    if (context->dtls) {
+        // for dlts, newer version has lower id (1.0 = FEFF, 1.2 = FEFD)
+        if (context->version < version)
+            downgraded = 1;
+    } else {
+        if (context->version > version)
+            downgraded = 1;
+    }
+    if (downgraded) {
         context->version = version;
-        downgraded = 1;
         if (!context->is_server)
             __private_tls_change_hash_type(context);
     }
