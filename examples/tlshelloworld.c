@@ -42,7 +42,7 @@ void load_keys(struct TLSContext *context, char *fname, char *priv_fname) {
 }
 
 /*
-// UDP version, preserving message boundary.
+// Use this version with DTLS (preserving message boundary)
 int send_pending_udp(int client_sock, struct TLSContext *context, struct sockaddr_in *clientaddr, socklen_t socket_len) {
     unsigned int out_buffer_len = 0;
     unsigned int offset = 0;
