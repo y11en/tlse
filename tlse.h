@@ -14,6 +14,8 @@
 #define TLS_CLIENT_ECDHE
 // suport ecdsa
 #define TLS_ECDSA_SUPPORTED
+// suport ecdsa client-side
+// #define TLS_CLIENT_ECDSA
 // TLS renegotiation is disabled by default (secured or not)
 // do not uncomment next line!
 // #define TLS_ACCEPT_SECURE_RENEGOTIATION
