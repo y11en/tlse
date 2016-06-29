@@ -2032,6 +2032,124 @@ int __private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type,
     
     return 1;
 }
+
+int __private_tls_verify_ecdsa(struct TLSContext *context, unsigned int hash_type, const unsigned char *buffer, unsigned int len, const unsigned char *message, unsigned int message_len) {
+    init_dependencies();
+    ecc_key key;
+    int err;
+    
+    if (context->is_server) {
+        if ((!len) || (!context) || (!context->client_certificates) || (!context->client_certificates_count) || (!context->client_certificates[0]) ||
+            (!context->client_certificates[0]->der_bytes) || (!context->client_certificates[0]->der_len)) {
+            DEBUG_PRINT("No client certificate set\n");
+            return TLS_GENERIC_ERROR;
+        }
+        err = ecc_import(context->client_certificates[0]->der_bytes, context->client_certificates[0]->der_len, &key);
+    } else {
+        if ((!len) || (!context) || (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]) ||
+            (!context->certificates[0]->der_bytes) || (!context->certificates[0]->der_len)) {
+            DEBUG_PRINT("No client certificate set\n");
+            return TLS_GENERIC_ERROR;
+        }
+        err = ecc_import(context->certificates[0]->der_bytes, context->certificates[0]->der_len, &key);
+    }
+    if (err) {
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)", err);
+        return TLS_GENERIC_ERROR;
+    }
+    int hash_idx = -1;
+    unsigned char hash[__TLS_MAX_HASH_LEN];
+    unsigned int hash_len = 0;
+    hash_state state;
+    switch (hash_type) {
+        case md5:
+            hash_idx = find_hash("md5");
+            err = md5_init(&state);
+            if (!err) {
+                err = md5_process(&state, message, message_len);
+                if (!err)
+                    err = md5_done(&state, hash);
+            }
+            hash_len = 16;
+            break;
+        case sha1:
+            hash_idx = find_hash("sha1");
+            err = sha1_init(&state);
+            if (!err) {
+                err = sha1_process(&state, message, message_len);
+                if (!err)
+                    err = sha1_done(&state, hash);
+            }
+            hash_len = 20;
+            break;
+        case sha256:
+            hash_idx = find_hash("sha256");
+            err = sha256_init(&state);
+            if (!err) {
+                err = sha256_process(&state, message, message_len);
+                if (!err)
+                    err = sha256_done(&state, hash);
+            }
+            hash_len = 32;
+            break;
+        case sha384:
+            hash_idx = find_hash("sha384");
+            err = sha384_init(&state);
+            if (!err) {
+                err = sha384_process(&state, message, message_len);
+                if (!err)
+                    err = sha384_done(&state, hash);
+            }
+            hash_len = 48;
+            break;
+        case sha512:
+            hash_idx = find_hash("sha512");
+            err = sha512_init(&state);
+            if (!err) {
+                err = sha512_process(&state, message, message_len);
+                if (!err)
+                    err = sha512_done(&state, hash);
+            }
+            hash_len = 64;
+            break;
+#ifdef TLS_LEGACY_SUPPORT
+        case __md5_sha1:
+            hash_idx = find_hash("md5");
+            err = md5_init(&state);
+            if (!err) {
+                err = md5_process(&state, message, message_len);
+                if (!err)
+                    err = md5_done(&state, hash);
+            }
+            hash_idx = find_hash("sha1");
+            err = sha1_init(&state);
+            if (!err) {
+                err = sha1_process(&state, message, message_len);
+                if (!err)
+                    err = sha1_done(&state, hash + 16);
+            }
+            hash_len = 36;
+            err = sha1_init(&state);
+            if (!err) {
+                err = sha1_process(&state, message, message_len);
+                if (!err)
+                    err = sha1_done(&state, hash + 16);
+            }
+            hash_len = 36;
+            break;
+#endif
+    }
+    if ((hash_idx < 0) || (err)) {
+        DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
+        return TLS_GENERIC_ERROR;
+    }
+    int ecc_stat = 0;
+    err = ecc_verify_hash(buffer, len, hash, hash_len, &ecc_stat, &key);
+    ecc_free(&key);
+    if (err)
+        return 0;
+    return ecc_stat;
+}
 #endif
 
 unsigned int __private_tls_random_int(int limit) {
@@ -5407,11 +5525,18 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         memcpy(message, context->local_random, __TLS_CLIENT_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE, context->remote_random, __TLS_SERVER_RANDOM_SIZE);
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet_ref, packet_size);
-
-        if (__private_tls_verify_rsa(context, hash_algorithm, signature, sign_size, message, message_len) != 1) {
-            DEBUG_PRINT("Server signature FAILED!\n");
-            TLS_FREE(message);
-            return TLS_BROKEN_PACKET;
+        if (tls_is_ecdsa(context)) {
+            if (__private_tls_verify_ecdsa(context, hash_algorithm, signature, sign_size, message, message_len) != 1) {
+                DEBUG_PRINT("ECC Server signature FAILED!\n");
+                TLS_FREE(message);
+                return TLS_BROKEN_PACKET;
+            }
+        } else {
+            if (__private_tls_verify_rsa(context, hash_algorithm, signature, sign_size, message, message_len) != 1) {
+                DEBUG_PRINT("Server signature FAILED!\n");
+                TLS_FREE(message);
+                return TLS_BROKEN_PACKET;
+            }
         }
         TLS_FREE(message);
     }
