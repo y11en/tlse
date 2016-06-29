@@ -1098,6 +1098,9 @@ struct TLSContext {
     unsigned char *verify_data;
     unsigned char verify_len;
 #endif
+    char **alpn;
+    unsigned char alpn_count;
+    char *negotiated_alpn;
 };
 
 struct TLSPacket {
@@ -3856,6 +3859,8 @@ struct TLSContext *tls_accept(struct TLSContext *context) {
         child->default_dhe_g = context->default_dhe_g;
         child->curve = context->curve;
 #endif
+        child->alpn = context->alpn;
+        child->alpn_count = context->alpn_count;
     }
     return child;
 }
@@ -3920,6 +3925,54 @@ int tls_set_default_dhe_pg(struct TLSContext *context, const char *p_hex_str, co
 }
 #endif
 
+const char *tls_alpn(struct TLSContext *context) {
+    if (!context)
+        return NULL;
+    return context->negotiated_alpn;
+}
+
+int tls_add_alpn(struct TLSContext *context, const char *alpn) {
+    if ((!context) || (!alpn) || (!alpn[0]) || ((context->is_server) && (context->is_child)))
+        return TLS_GENERIC_ERROR;
+    int len = strlen(alpn);
+    if (tls_alpn_contains(context, alpn, len))
+        return 0;
+    context->alpn = (char **)TLS_REALLOC(context->alpn, (context->alpn_count + 1) * sizeof(char *));
+    if (!context->alpn) {
+        context->alpn_count = 0;
+        return TLS_NO_MEMORY;
+    }
+    char *alpn_ref = (char *)TLS_MALLOC(len+1);
+    context->alpn[context->alpn_count] = alpn_ref;
+    if (alpn_ref) {
+        memcpy(alpn_ref, alpn, len);
+        alpn_ref[len] = 0;
+        context->alpn_count++;
+    } else
+        return TLS_NO_MEMORY;
+    return 0;
+}
+
+int tls_alpn_contains(struct TLSContext *context, const char *alpn, unsigned char alpn_size) {
+    if ((!context) || (!alpn) || (!alpn_size))
+        return 0;
+
+    if (context->alpn) {
+        int i;
+        for (i = 0; i < context->alpn_count; i++) {
+            unsigned char *alpn_local = context->alpn[i];
+            if (alpn_local) {
+                int len = strlen(alpn_local);
+                if (alpn_size == len) {
+                    if (!memcmp(alpn_local, alpn, alpn_size))
+                        return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 void tls_destroy_context(struct TLSContext *context) {
     unsigned int i;
     if (!context)
@@ -3944,6 +3997,11 @@ void tls_destroy_context(struct TLSContext *context) {
         TLS_FREE(context->default_dhe_p);
         TLS_FREE(context->default_dhe_g);
 #endif
+        if (context->alpn) {
+            for (i = 0; i < context->alpn_count; i++)
+                TLS_FREE(context->alpn[i]);
+            TLS_FREE(context->alpn);
+        }
     }
     if (context->client_certificates) {
         for (i = 0; i < context->client_certificates_count; i++)
@@ -3973,6 +4031,12 @@ void tls_destroy_context(struct TLSContext *context) {
 #ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
     TLS_FREE(context->verify_data);
 #endif
+    if (context->client_certificates) {
+        for (i = 0; i < context->client_certificates_count; i++)
+            tls_destroy_certificate(context->client_certificates[i]);
+        TLS_FREE(context->client_certificates);
+    }
+    TLS_FREE(context->negotiated_alpn);
     TLS_FREE(context);
 }
 
@@ -4836,6 +4900,25 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                     sni_len = strlen(context->sni);
                 
                 int extension_len = 0;
+                int alpn_len = 0;
+                int alpn_negotiated_len = 0;
+                int i;
+                if ((context->is_server) && (context->negotiated_alpn)) {
+                    alpn_negotiated_len = strlen(context->negotiated_alpn);
+                    alpn_len = alpn_negotiated_len + 1;
+                    extension_len +=  alpn_len + 2;
+                } else
+                if ((!context->is_server) && (context->alpn_count)) {
+                    for (i = 0; i < context->alpn_count;i++) {
+                        if (context->alpn[i]) {
+                            int len = strlen(context->alpn[i]);
+                            if (len)
+                                alpn_len += len + 1;
+                        }
+                    }
+                    if (alpn_len)
+                        extension_len += alpn_len + 2;
+                }
 #ifdef TLS_CLIENT_ECDHE
                 extension_len += 12;
 #endif
@@ -4869,6 +4952,25 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 tls_packet_uint16(packet, secp224r1.iana);
 #endif
 #endif
+                if (alpn_len) {
+                    tls_packet_uint16(packet, 0x10);
+                    tls_packet_uint16(packet, alpn_len + 2);
+                    tls_packet_uint16(packet, alpn_len);
+                    if (context->is_server) {
+                        tls_packet_uint8(packet, alpn_negotiated_len);
+                        tls_packet_append(packet, context->negotiated_alpn, alpn_negotiated_len);
+                    } else {
+                        for (i = 0; i < context->alpn_count;i++) {
+                            if (context->alpn[i]) {
+                                int len = strlen(context->alpn[i]);
+                                if (len) {
+                                    tls_packet_uint8(packet, len);
+                                    tls_packet_append(packet, context->alpn[i], len);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
         
@@ -5262,6 +5364,34 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 }
             } else
 #endif
+            if ((extension_type == 0x10) && (context->alpn) && (context->alpn_count)) {
+                if (buf_len - res > 2) {
+                    unsigned short alpn_len = ntohs(*(unsigned short *)&buf[res]);
+                    if ((alpn_len) && (alpn_len <= extension_len - 2)) {
+                        unsigned char *alpn = (unsigned char *)&buf[res + 2];
+                        int alpn_pos = 0;
+                        while (alpn_pos < alpn_len) {
+                            unsigned char alpn_size = alpn[alpn_pos++];
+                            if (alpn_size + alpn_pos >= extension_len)
+                                break;
+                            if ((alpn_size) && (tls_alpn_contains(context, &alpn[alpn_pos], alpn_size))) {
+                                TLS_FREE(context->negotiated_alpn);
+                                context->negotiated_alpn = (char *)TLS_MALLOC(alpn_size + 1);
+                                if (context->negotiated_alpn) {
+                                    memcpy(context->negotiated_alpn, &alpn[alpn_pos], alpn_size);
+                                    context->negotiated_alpn[alpn_size] = 0;
+                                    DEBUG_PRINT("NEGOTIATED ALPN: %s\n", context->negotiated_alpn);
+                                }
+                                break;
+                            }
+                            alpn_pos += alpn_size;
+                            // ServerHello contains just one alpn
+                            if (!context->is_server)
+                                break;
+                        }
+                    }
+                }
+            } else
             if (extension_type == 0x0D) {
                 // supported signatures
                 DEBUG_DUMP_HEX_LABEL("SUPPORTED SIGNATURES", &buf[res], extension_len);
