@@ -3960,7 +3960,7 @@ int tls_alpn_contains(struct TLSContext *context, const char *alpn, unsigned cha
     if (context->alpn) {
         int i;
         for (i = 0; i < context->alpn_count; i++) {
-            unsigned char *alpn_local = context->alpn[i];
+            const char *alpn_local = context->alpn[i];
             if (alpn_local) {
                 int len = strlen(alpn_local);
                 if (alpn_size == len) {
@@ -4958,14 +4958,14 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                     tls_packet_uint16(packet, alpn_len);
                     if (context->is_server) {
                         tls_packet_uint8(packet, alpn_negotiated_len);
-                        tls_packet_append(packet, context->negotiated_alpn, alpn_negotiated_len);
+                        tls_packet_append(packet, (unsigned char *)context->negotiated_alpn, alpn_negotiated_len);
                     } else {
                         for (i = 0; i < context->alpn_count;i++) {
                             if (context->alpn[i]) {
                                 int len = strlen(context->alpn[i]);
                                 if (len) {
                                     tls_packet_uint8(packet, len);
-                                    tls_packet_append(packet, context->alpn[i], len);
+                                    tls_packet_append(packet, (unsigned char *)context->alpn[i], len);
                                 }
                             }
                         }
@@ -5374,7 +5374,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                             unsigned char alpn_size = alpn[alpn_pos++];
                             if (alpn_size + alpn_pos >= extension_len)
                                 break;
-                            if ((alpn_size) && (tls_alpn_contains(context, &alpn[alpn_pos], alpn_size))) {
+                            if ((alpn_size) && (tls_alpn_contains(context, (char *)&alpn[alpn_pos], alpn_size))) {
                                 TLS_FREE(context->negotiated_alpn);
                                 context->negotiated_alpn = (char *)TLS_MALLOC(alpn_size + 1);
                                 if (context->negotiated_alpn) {
