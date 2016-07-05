@@ -1,6 +1,6 @@
 # TLSe
 
-Single C file TLS 1.2 (also 1.1 and 1.0) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. It also supports DTLS 1.2 and 1.0, over SCTP. Before using tlslayer.c you should download and compile tomcrypt first. I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
+Single C file TLS 1.2 (also 1.1 and 1.0) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. It also supports DTLS 1.2 and 1.0, over SCTP. Before using tlse.c you may want to download and compile tomcrypt; alternatively you may use libtomcrypt.c (see Compiling). I'm working at an alternative efficient RSA encryption/decryption implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
 
 Compiling
 ----------
