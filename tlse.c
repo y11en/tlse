@@ -4835,8 +4835,13 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
 #ifdef TLS_WITH_CHACHA20_POLY1305
     #ifdef TLS_CLIENT_ECDSA
                 tls_packet_uint16(packet, 42);
-                tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256);
+    #ifdef TLS_PREFER_CHACHA20
                 tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256);
+    #endif
+                tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256);
+    #ifndef TLS_PREFER_CHACHA20
+                tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256);
+    #endif
                 tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256);
                 tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA);
                 tls_packet_uint16(packet, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA);
@@ -4856,12 +4861,19 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 tls_packet_uint16(packet, 28);
     #endif
 #endif
+#ifdef TLS_WITH_CHACHA20_POLY1305
+                #ifdef TLS_PREFER_CHACHA20
+                    tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256);
+                #endif
+#endif
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA);
                 tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256);
 #ifdef TLS_WITH_CHACHA20_POLY1305
-                tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256);
+                #ifndef TLS_PREFER_CHACHA20
+                    tls_packet_uint16(packet, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256);
+                #endif
 #endif
 #else
 #ifdef TLS_WITH_CHACHA20_POLY1305
