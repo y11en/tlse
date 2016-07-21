@@ -249,28 +249,28 @@ static inline void chacha_nonce(chacha_ctx *x, u8 *nonce) {
 }
 
 static inline void chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter) {
-	x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
-	x->input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
+    x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
+    x->input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
     if (iv) {
-	    x->input[14] = U8TO32_LITTLE(iv + 0);
-	    x->input[15] = U8TO32_LITTLE(iv + 4);
+        x->input[14] = U8TO32_LITTLE(iv + 0);
+        x->input[15] = U8TO32_LITTLE(iv + 4);
     }
 }
 
 static inline void chacha_ivsetup_96bitnonce(chacha_ctx *x, const u8 *iv, const u8 *counter) {
-	x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
+    x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
     if (iv) {
-	    x->input[13] = U8TO32_LITTLE(iv + 0);
-	    x->input[14] = U8TO32_LITTLE(iv + 4);
-	    x->input[15] = U8TO32_LITTLE(iv + 8);
+        x->input[13] = U8TO32_LITTLE(iv + 0);
+        x->input[14] = U8TO32_LITTLE(iv + 4);
+        x->input[15] = U8TO32_LITTLE(iv + 8);
     }
 }
 
 static inline void chacha_ivupdate(chacha_ctx *x, const u8 *iv, const u8 *aad, const u8 *counter) {
-	x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
-	x->input[13] = U8TO32_LITTLE(iv + 0);
-	x->input[14] = U8TO32_LITTLE(iv + 4) ^ U8TO32_LITTLE(aad);
-	x->input[15] = U8TO32_LITTLE(iv + 8) ^ U8TO32_LITTLE(aad + 4);
+    x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
+    x->input[13] = U8TO32_LITTLE(iv + 0);
+    x->input[14] = U8TO32_LITTLE(iv + 4) ^ U8TO32_LITTLE(aad);
+    x->input[15] = U8TO32_LITTLE(iv + 8) ^ U8TO32_LITTLE(aad + 4);
 }
 
 static inline void chacha_encrypt_bytes(chacha_ctx *x, const u8 *m, u8 *c, u32 bytes) {
@@ -1116,6 +1116,10 @@ struct TLSPacket {
 };
 
 #ifdef SSL_COMPATIBLE_INTERFACE
+
+typedef int (*SOCKET_RECV_CALLBACK)(int socket, void *buffer, size_t length, int flags);
+typedef int (*SOCKET_SEND_CALLBACK)(int socket, const void *buffer, size_t length, int flags);
+
 #ifdef _WIN32
 #include <winsock2.h>
 #else
@@ -8075,8 +8079,16 @@ int __tls_ssl_private_send_pending(int client_sock, struct TLSContext *context) 
     const unsigned char *out_buffer = tls_get_write_buffer(context, &out_buffer_len);
     unsigned int out_buffer_index = 0;
     int send_res = 0;
+    SOCKET_SEND_CALLBACK write_cb = NULL;
+    SSLUserData *ssl_data = (SSLUserData *)context->user_data;
+    if (ssl_data)
+        write_cb = (SOCKET_SEND_CALLBACK)ssl_data->send;
     while ((out_buffer) && (out_buffer_len > 0)) {
-        int res = send(client_sock, (char *)&out_buffer[out_buffer_index], out_buffer_len, 0);
+        int res;
+        if (write_cb)
+            res = write_cb(client_sock, (char *)&out_buffer[out_buffer_index], out_buffer_len, 0);
+        else
+            res = send(client_sock, (char *)&out_buffer[out_buffer_index], out_buffer_len, 0);
         if (res <= 0) {
             send_res = res;
             break;
@@ -8240,6 +8252,17 @@ void SSL_CTX_set_verify(struct TLSContext *context, int mode, tls_validation_fun
         ssl_data->certificate_verify = verify_callback;
 }
 
+int __private_tls_safe_read(struct TLSContext *context, void *buffer, int buf_size) {
+    SSLUserData *ssl_data = (SSLUserData *)context->user_data;
+    if ((!ssl_data) || (ssl_data->fd <= 0))
+        return TLS_GENERIC_ERROR;
+
+    SOCKET_RECV_CALLBACK read_cb = (SOCKET_RECV_CALLBACK)ssl_data->recv;
+    if (read_cb)
+        return read_cb(ssl_data->fd, (char *)buffer, buf_size, 0);
+    return recv(ssl_data->fd, (char *)buffer, buf_size, 0);
+}
+
 int SSL_accept(struct TLSContext *context) {
     if (!context)
         return TLS_GENERIC_ERROR;
@@ -8249,7 +8272,9 @@ int SSL_accept(struct TLSContext *context) {
     unsigned char client_message[0xFFFF];
     // accept
     int read_size;
-    while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0))) {
+    SOCKET_RECV_CALLBACK read_cb = (SOCKET_RECV_CALLBACK)ssl_data->recv;
+
+    while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message)))) {
         if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) >= 0) {
             int res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
@@ -8276,7 +8301,8 @@ int SSL_connect(struct TLSContext *context) {
     
     int read_size;
     unsigned char client_message[0xFFFF];
-    while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
+
+    while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message)))) {
         if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) >= 0) {
             res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
@@ -8334,7 +8360,7 @@ int SSL_read(struct TLSContext *context, void *buf, unsigned int len) {
         unsigned char client_message[0xFFFF];
         // accept
         int read_size;
-        while ((read_size = recv(ssl_data->fd, (char *)client_message, sizeof(client_message), 0)) > 0) {
+        while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message)))) {
             if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) > 0) {
                 __tls_ssl_private_send_pending(ssl_data->fd, context);
                 break;
@@ -8356,6 +8382,21 @@ int SSL_pending(struct TLSContext *context) {
     return context->application_buffer_len;
 }
 
+int SSL_set_io(struct TLSContext *context, void *recv_cb, void *send_cb) {
+    if (!context)
+        return TLS_GENERIC_ERROR;
+    SSLUserData *ssl_data = (SSLUserData *)context->user_data;
+    if (!ssl_data) {
+        ssl_data = (SSLUserData *)TLS_MALLOC(sizeof(SSLUserData));
+        if (!ssl_data)
+            return TLS_NO_MEMORY;
+        memset(ssl_data, 0, sizeof(SSLUserData));
+        context->user_data = ssl_data;
+    }
+    ssl_data->recv = recv_cb;
+    ssl_data->send = send_cb;
+    return 0;
+}
 #endif // SSL_COMPATIBLE_INTERFACE
 
 #endif // TLSE_C
