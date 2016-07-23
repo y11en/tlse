@@ -244,6 +244,8 @@ const char *tls_alpn(struct TLSContext *context);
     typedef struct {
         int fd;
         tls_validation_function certificate_verify;
+        void *recv;
+        void *send;
         void *user_data;
     } SSLUserData;
 
