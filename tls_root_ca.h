@@ -1,3 +1,6 @@
+#ifndef __TLS_ROOT_CA_H
+#define __TLS_ROOT_CA_H
+
 static const char ROOT_CA_DEF[]=	"GlobalSign Root CA\r\n"
 	"==================\r\n"
 	"-----BEGIN CERTIFICATE-----\r\n"
@@ -3723,3 +3726,5 @@ static const char ROOT_CA_DEF[]=	"GlobalSign Root CA\r\n"
 	"-----END CERTIFICATE-----\r\n";
 
 static const int ROOT_CA_DEF_LEN = 255249;
+
+#endif //__TLS_ROOT_CA_H
