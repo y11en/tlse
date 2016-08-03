@@ -8,6 +8,8 @@
 #define TLS_LEGACY_SUPPORT
 // SSL_* style blocking APIs
 #define SSL_COMPATIBLE_INTERFACE
+// support ChaCha20/Poly1305
+#define TLS_WITH_CHACHA20_POLY1305
 // support forward secrecy (Diffie-Hellman ephemeral)
 #define TLS_FORWARD_SECRECY
 // support client-side ECDHE
