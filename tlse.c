@@ -4946,7 +4946,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 if ((context->is_server) && (context->negotiated_alpn)) {
                     alpn_negotiated_len = strlen(context->negotiated_alpn);
                     alpn_len = alpn_negotiated_len + 1;
-                    extension_len +=  alpn_len + 2;
+                    extension_len += alpn_len + 2;
                 } else
                 if ((!context->is_server) && (context->alpn_count)) {
                     for (i = 0; i < context->alpn_count;i++) {
@@ -4984,8 +4984,8 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
 #ifdef TLS_CLIENT_ECDHE
                 // supported groups
                 tls_packet_uint16(packet, 0x0A);
-                // 4 curves x 2 bytes
                 tls_packet_uint16(packet, 8);
+                // 3 curves x 2 bytes
                 tls_packet_uint16(packet, 6);
                 tls_packet_uint16(packet, secp256r1.iana);
                 tls_packet_uint16(packet, secp384r1.iana);
