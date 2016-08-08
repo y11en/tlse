@@ -4795,6 +4795,27 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
             tls_packet_append(packet, context->session, context->session_size);
 #endif
 
+        int extension_len = 0;
+        int alpn_len = 0;
+        int alpn_negotiated_len = 0;
+        int i;
+        if ((context->is_server) && (context->negotiated_alpn)) {
+            alpn_negotiated_len = strlen(context->negotiated_alpn);
+            alpn_len = alpn_negotiated_len + 1;
+            extension_len += alpn_len + 6;
+        } else
+        if ((!context->is_server) && (context->alpn_count)) {
+            for (i = 0; i < context->alpn_count;i++) {
+                if (context->alpn[i]) {
+                    int len = strlen(context->alpn[i]);
+                    if (len)
+                        alpn_len += len + 1;
+                }
+            }
+            if (alpn_len)
+                extension_len += alpn_len + 6;
+        }
+
         // ciphers
         if (context->is_server) {
             // fallback ... this should never happen
@@ -4807,7 +4828,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
 #ifndef STRICT_TLS
             if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
                 // extensions size
-                tls_packet_uint16(packet, 5);
+                tls_packet_uint16(packet, 5 + extension_len);
                 // secure renegotation
                 // advertise it, but refuse renegotiation
                 tls_packet_uint16(packet, 0xff01);
@@ -4823,6 +4844,14 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 tls_packet_uint16(packet, 1);
                 tls_packet_uint8(packet, 0);
 #endif
+                if (alpn_len) {
+                    tls_packet_uint16(packet, 0x10);
+                    tls_packet_uint16(packet, alpn_len + 2);
+                    tls_packet_uint16(packet, alpn_len);
+
+                    tls_packet_uint8(packet, alpn_negotiated_len);
+                    tls_packet_append(packet, (unsigned char *)context->negotiated_alpn, alpn_negotiated_len);
+                }
             }
 #endif
         } else {
@@ -4939,26 +4968,6 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 if (context->sni)
                     sni_len = strlen(context->sni);
                 
-                int extension_len = 0;
-                int alpn_len = 0;
-                int alpn_negotiated_len = 0;
-                int i;
-                if ((context->is_server) && (context->negotiated_alpn)) {
-                    alpn_negotiated_len = strlen(context->negotiated_alpn);
-                    alpn_len = alpn_negotiated_len + 1;
-                    extension_len += alpn_len + 6;
-                } else
-                if ((!context->is_server) && (context->alpn_count)) {
-                    for (i = 0; i < context->alpn_count;i++) {
-                        if (context->alpn[i]) {
-                            int len = strlen(context->alpn[i]);
-                            if (len)
-                                alpn_len += len + 1;
-                        }
-                    }
-                    if (alpn_len)
-                        extension_len += alpn_len + 6;
-                }
 #ifdef TLS_CLIENT_ECDHE
                 extension_len += 12;
 #endif
@@ -4996,17 +5005,13 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                     tls_packet_uint16(packet, 0x10);
                     tls_packet_uint16(packet, alpn_len + 2);
                     tls_packet_uint16(packet, alpn_len);
-                    if (context->is_server) {
-                        tls_packet_uint8(packet, alpn_negotiated_len);
-                        tls_packet_append(packet, (unsigned char *)context->negotiated_alpn, alpn_negotiated_len);
-                    } else {
-                        for (i = 0; i < context->alpn_count;i++) {
-                            if (context->alpn[i]) {
-                                int len = strlen(context->alpn[i]);
-                                if (len) {
-                                    tls_packet_uint8(packet, len);
-                                    tls_packet_append(packet, (unsigned char *)context->alpn[i], len);
-                                }
+
+                    for (i = 0; i < context->alpn_count;i++) {
+                        if (context->alpn[i]) {
+                            int len = strlen(context->alpn[i]);
+                            if (len) {
+                                tls_packet_uint8(packet, len);
+                                tls_packet_append(packet, (unsigned char *)context->alpn[i], len);
                             }
                         }
                     }
