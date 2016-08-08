@@ -4946,7 +4946,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                 if ((context->is_server) && (context->negotiated_alpn)) {
                     alpn_negotiated_len = strlen(context->negotiated_alpn);
                     alpn_len = alpn_negotiated_len + 1;
-                    extension_len += alpn_len + 2;
+                    extension_len += alpn_len + 6;
                 } else
                 if ((!context->is_server) && (context->alpn_count)) {
                     for (i = 0; i < context->alpn_count;i++) {
@@ -4957,7 +4957,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context) {
                         }
                     }
                     if (alpn_len)
-                        extension_len += alpn_len + 2;
+                        extension_len += alpn_len + 6;
                 }
 #ifdef TLS_CLIENT_ECDHE
                 extension_len += 12;
