@@ -25,6 +25,8 @@ and the server:
 
 tlse.h is optional (is safe to just include tlse.c). Alternatively, you may include tlse.h and add tlse.c to your makefile (useful when linking against C++).
 
+If thread-safety is needed, you need to define `LTC_PTHREAD` (`-DLTC_PTHREAD`) TLSe should be thread-safe, but libtomcrypt needs this flag to ensure lockings for PRNGs and other functions.
+
 Usage
 ----------
 
