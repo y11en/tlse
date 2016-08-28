@@ -1247,7 +1247,7 @@ int __private_b64_decode(const char *in_buffer, int in_buffer_size, unsigned cha
     return (int)((intptr_t)out_ptr - (intptr_t)out_buffer);
 }
 
-void init_dependencies() {
+void tls_init() {
     if (dependecies_loaded)
         return;
     DEBUG_PRINT("Initializing dependencies\n");
@@ -1402,7 +1402,7 @@ unsigned char *__private_tls_decrypt_rsa(struct TLSContext *context, const unsig
         DEBUG_PRINT("No private key set");
         return NULL;
     }
-    init_dependencies();
+    tls_init();
     rsa_key key;
     int err;
     err = rsa_import(context->private_key->der_bytes, context->private_key->der_len, &key);
@@ -1433,7 +1433,7 @@ unsigned char *__private_tls_encrypt_rsa(struct TLSContext *context, const unsig
         DEBUG_PRINT("No certificate set\n");
         return NULL;
     }
-    init_dependencies();
+    tls_init();
     rsa_key key;
     int err;
     err = rsa_import(context->certificates[0]->der_bytes, context->certificates[0]->der_len, &key);
@@ -1510,7 +1510,7 @@ int __private_rsa_verify_hash_md5sha1(const unsigned char *sig, unsigned long si
 #endif
 
 int __private_tls_verify_rsa(struct TLSContext *context, unsigned int hash_type, const unsigned char *buffer, unsigned int len, const unsigned char *message, unsigned int message_len) {
-    init_dependencies();
+    tls_init();
     rsa_key key;
     int err;
     
@@ -1661,7 +1661,7 @@ int __private_tls_sign_rsa(struct TLSContext *context, unsigned int hash_type, c
         DEBUG_PRINT("No private key set");
         return TLS_GENERIC_ERROR;
     }
-    init_dependencies();
+    tls_init();
     rsa_key key;
     int err;
     err = rsa_import(context->private_key->der_bytes, context->private_key->der_len, &key);
@@ -1936,7 +1936,7 @@ int __private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type,
     if (!curve)
         return TLS_GENERIC_ERROR;
     
-    init_dependencies();
+    tls_init();
     ecc_key key;
     int err;
     
@@ -2093,7 +2093,7 @@ int __private_tls_ecc_import_pk(const unsigned char *public_key, int public_len,
 }
 
 int __private_tls_verify_ecdsa(struct TLSContext *context, unsigned int hash_type, const unsigned char *buffer, unsigned int len, const unsigned char *message, unsigned int message_len) {
-    init_dependencies();
+    tls_init();
     ecc_key key;
     int err;
     
@@ -3157,7 +3157,7 @@ int __private_tls_crypto_create(struct TLSContext *context, int key_length, int 
         }
         context->crypto.created = 0;
     }
-    init_dependencies();
+    tls_init();
     int is_aead = __private_tls_is_aead(context);
     int cipherID = find_cipher("aes");
     DEBUG_PRINT("Using cipher ID: %x\n", (int)context->cipher);
@@ -4593,7 +4593,7 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
     int start_len = packet->len;
 #ifdef TLS_FORWARD_SECRECY
     if (method == KEA_dhe_rsa) {
-        init_dependencies();
+        tls_init();
         __private_tls_dhe_create(context);
         
         const char *default_dhe_p = context->default_dhe_p;
@@ -4653,7 +4653,7 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
             context->curve = default_curve;
         tls_packet_uint8(packet, 3);
         tls_packet_uint16(packet, context->curve->iana);
-        init_dependencies();
+        tls_init();
         __private_tls_ecc_dhe_create(context);
         
         ltc_ecc_set_type *dp = (ltc_ecc_set_type *)&context->curve->dp;
@@ -5822,7 +5822,7 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         }
     } else
     if ((ephemeral == 2) && (curve) && (pk_key) && (key_size)) {
-        init_dependencies();
+        tls_init();
         __private_tls_ecc_dhe_create(context);
         
         ltc_ecc_set_type *dp = (ltc_ecc_set_type *)&curve->dp;
@@ -6806,7 +6806,7 @@ int tls_certificate_verify_signature(struct TLSCertificate *cert, struct TLSCert
         DEBUG_PRINT("CANNOT VERIFY SIGNATURE");
         return 0;
     }
-    init_dependencies();
+    tls_init();
     int hash_len = __private_tls_hash_len(cert->algorithm);
     if (hash_len <= 0)
         return 0;
