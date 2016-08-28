@@ -32,7 +32,7 @@ Usage
 
 You just 
 `#include "tlse.c"`
-in your code. Everithing is a single file.
+in your code. Everything is a single file.
 
 Features
 ----------
