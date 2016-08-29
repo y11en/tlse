@@ -25,7 +25,7 @@ and the server:
 
 tlse.h is optional (is safe to just include tlse.c). Alternatively, you may include tlse.h and add tlse.c to your makefile (useful when linking against C++).
 
-If thread-safety is needed, you need to call `tls_init()` before letting any other threads in, and not use the same object from multiple threads without a mutex. Other than that, TLSe and libtomcrypt are thread-safe.
+If thread-safety is needed, you need to call `tls_init()` before letting any other threads in, and not use the same object from multiple threads without a mutex. Other than that, TLSe and libtomcrypt are thread-safe. Also, you may want to define LTC_PTHREAD if you're using libtomcrypt.
 
 Usage
 ----------
