@@ -7505,14 +7505,23 @@ int __private_tls_read_from_file(const char *fname, void *buf, int max_len) {
 }
 
 int tls_consume_stream(struct TLSContext *context, const unsigned char *buf, int buf_len, tls_validation_function certificate_verify) {
-    if ((buf_len <= 0) || (!buf)) {
+    if (!context)
+        return TLS_GENERIC_ERROR;
+
+    if (buf_len <= 0) {
+        DEBUG_PRINT("tls_consume_stream called with buf_len %i\n", buf_len);
+        return 0;
+    }
+
+    if (!buf) {
+        DEBUG_PRINT("tls_consume_stream called NULL buffer\n");
         context->critical_error = 1;
         return TLS_NO_MEMORY;
     }
-    if (!context)
-        return TLS_NO_MEMORY;
+
     if (context->critical_error)
         return TLS_BROKEN_CONNECTION;
+
     unsigned int orig_len = context->message_buffer_len;
     context->message_buffer_len += buf_len;
     context->message_buffer = (unsigned char *)TLS_REALLOC(context->message_buffer, context->message_buffer_len);
