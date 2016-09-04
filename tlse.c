@@ -7508,6 +7508,9 @@ int tls_consume_stream(struct TLSContext *context, const unsigned char *buf, int
     if (!context)
         return TLS_GENERIC_ERROR;
 
+    if (context->critical_error)
+        return TLS_BROKEN_CONNECTION;
+
     if (buf_len <= 0) {
         DEBUG_PRINT("tls_consume_stream called with buf_len %i\n", buf_len);
         return 0;
@@ -7518,9 +7521,6 @@ int tls_consume_stream(struct TLSContext *context, const unsigned char *buf, int
         context->critical_error = 1;
         return TLS_NO_MEMORY;
     }
-
-    if (context->critical_error)
-        return TLS_BROKEN_CONNECTION;
 
     unsigned int orig_len = context->message_buffer_len;
     context->message_buffer_len += buf_len;
