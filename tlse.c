@@ -8284,10 +8284,12 @@ int SSL_accept(struct TLSContext *context) {
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
     if ((!ssl_data) || (ssl_data->fd <= 0))
         return TLS_GENERIC_ERROR;
+    if (tls_established(context))
+        return 1;
     unsigned char client_message[0xFFFF];
     // accept
-    int read_size;
-    while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message)))) {
+    int read_size = 0;
+    while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message))) > 0) {
         if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) >= 0) {
             int res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
@@ -8296,6 +8298,8 @@ int SSL_accept(struct TLSContext *context) {
         if (tls_established(context))
             return 1;
     }
+    if (read_size <= 0)
+        return TLS_BROKEN_CONNECTION;
     return 0;
 }
 
@@ -8315,7 +8319,7 @@ int SSL_connect(struct TLSContext *context) {
     int read_size;
     unsigned char client_message[0xFFFF];
 
-    while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message)))) {
+    while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message))) > 0) {
         if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) >= 0) {
             res = __tls_ssl_private_send_pending(ssl_data->fd, context);
             if (res < 0)
@@ -8373,7 +8377,7 @@ int SSL_read(struct TLSContext *context, void *buf, unsigned int len) {
         unsigned char client_message[0xFFFF];
         // accept
         int read_size;
-        while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message)))) {
+        while ((read_size = __private_tls_safe_read(context, (char *)client_message, sizeof(client_message))) > 0) {
             if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) > 0) {
                 __tls_ssl_private_send_pending(ssl_data->fd, context);
                 break;
@@ -8382,7 +8386,7 @@ int SSL_read(struct TLSContext *context, void *buf, unsigned int len) {
                 return TLS_GENERIC_ERROR;
             }
         }
-        if ((read_size < 0) && (!context->application_buffer_len))
+        if ((read_size <= 0) && (!context->application_buffer_len))
             return read_size;
     }
     
