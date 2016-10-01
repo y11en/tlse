@@ -7262,7 +7262,7 @@ int tls_load_certificates(struct TLSContext *context, const unsigned char *pem_b
         if (cert) {
             if ((cert->version == 2) 
 #ifdef TLS_X509_V1_SUPPORT
-                || (cert->version == 0)) 
+                || (cert->version == 0)
 #endif
             ) {
                 TLS_FREE(cert->der_bytes);
