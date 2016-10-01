@@ -8147,7 +8147,7 @@ int SSL_CTX_use_PrivateKey_file(struct TLSContext *context, const char *filename
 }
 
 int SSL_CTX_check_private_key(struct TLSContext *context) {
-    if ((!context) || (!context->private_key) || (!context->private_key->der_bytes) || (!context->private_key->der_len))
+    if ((!context) || (((!context->private_key) || (!context->private_key->der_bytes) || (!context->private_key->der_len)) && ((!context->ec_private_key) || (!context->ec_private_key->der_bytes) || (!context->ec_private_key->der_len))))
         return 0;
     return 1;
 }
