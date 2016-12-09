@@ -5602,6 +5602,9 @@ int __private_tls_build_random(struct TLSPacket *packet) {
         return TLS_GENERIC_ERROR;
     
     // max supported version
+    if (packet->context->is_server)
+        *(unsigned short *)&rand_bytes[0] = htons(packet->context->version);
+    else
     if (packet->context->dtls)
         *(unsigned short *)&rand_bytes[0] = htons(DTLS_V12);
     else
