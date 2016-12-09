@@ -2298,8 +2298,8 @@ void __private_tls_prf(struct TLSContext *context,
         int half_secret = (secret_len + 1) / 2;
         
         memset(output, 0, outlen);
-        __private_tls_prf_helper(md5_hash_idx, 32, output, outlen, secret, half_secret, label, label_len, seed, seed_len, seed_b, seed_b_len);
-        __private_tls_prf_helper(sha1_hash_idx, 40, output, outlen, secret + (secret_len - half_secret), secret_len - half_secret, label, label_len, seed, seed_len, seed_b, seed_b_len);
+        __private_tls_prf_helper(md5_hash_idx, 16, output, outlen, secret, half_secret, label, label_len, seed, seed_len, seed_b, seed_b_len);
+        __private_tls_prf_helper(sha1_hash_idx, 20, output, outlen, secret + (secret_len - half_secret), secret_len - half_secret, label, label_len, seed, seed_len, seed_b, seed_b_len);
     } else {
         // sha256_hmac
         unsigned char digest_out0[__TLS_MAX_HASH_LEN];
