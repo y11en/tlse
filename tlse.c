@@ -2241,7 +2241,7 @@ void __private_random_sleep(struct TLSContext *context, int max_microseconds) {
         __private_tls_sleep(__private_tls_random_int(max_microseconds));
 }
 
-void __private_tls_prf_helper(int hash_idx, unsigned int dlen, unsigned char *output, unsigned int outlen, const unsigned char *secret, const unsigned int secret_len,
+void __private_tls_prf_helper(int hash_idx, unsigned long dlen, unsigned char *output, unsigned int outlen, const unsigned char *secret, const unsigned int secret_len,
                               const unsigned char *label, unsigned int label_len, unsigned char *seed, unsigned int seed_len,
                               unsigned char *seed_b, unsigned int seed_b_len) {
     unsigned char digest_out0[__TLS_MAX_HASH_LEN];
