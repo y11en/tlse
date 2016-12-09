@@ -5601,7 +5601,11 @@ int __private_tls_build_random(struct TLSPacket *packet) {
     if (!tls_random(rand_bytes, bytes))
         return TLS_GENERIC_ERROR;
     
-    *(unsigned short *)&rand_bytes[0] = htons(packet->context->version);
+    // max supported version
+    if (packet->context->dtls)
+        *(unsigned short *)&rand_bytes[0] = htons(DTLS_V12);
+    else
+        *(unsigned short *)&rand_bytes[0] = htons(TLS_V12);
     //DEBUG_DUMP_HEX_LABEL("PREMASTER KEY", rand_bytes, bytes);
     
     TLS_FREE(packet->context->premaster_key);
