@@ -4035,6 +4035,7 @@ void tls_destroy_context(struct TLSContext *context) {
             tls_destroy_certificate(context->client_certificates[i]);
         TLS_FREE(context->client_certificates);
     }
+    context->client_certificates = NULL;
     TLS_FREE(context->master_key);
     TLS_FREE(context->premaster_key);
     if (context->crypto.created)
@@ -4058,11 +4059,6 @@ void tls_destroy_context(struct TLSContext *context) {
 #ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
     TLS_FREE(context->verify_data);
 #endif
-    if (context->client_certificates) {
-        for (i = 0; i < context->client_certificates_count; i++)
-            tls_destroy_certificate(context->client_certificates[i]);
-        TLS_FREE(context->client_certificates);
-    }
     TLS_FREE(context->negotiated_alpn);
     TLS_FREE(context);
 }
