@@ -7066,6 +7066,10 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                     DEBUG_PRINT("\n");
                     break;
                 case 0x03:
+                    if (__is_field(fields, pk_id)) {
+                        if (has_key)
+                            *has_key = 1;                        
+                    }
                     // bitstream
                     DEBUG_PRINT("BITSTREAM(%i): ", length);
                     DEBUG_DUMP_HEX(&buffer[pos], length);
