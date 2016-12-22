@@ -5513,6 +5513,9 @@ int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, 
                     context->certificates_count++;
                     if ((cert->pk) || (cert->priv))
                         valid_certificate = 1;
+                    else
+                    if (!context->is_server)
+                        valid_certificate = 1;
                 }
             }
             res2 += certificate_size2;
