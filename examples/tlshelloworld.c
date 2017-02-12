@@ -119,12 +119,13 @@ int main(int argc , char *argv[]) {
     server.sin_addr.s_addr = INADDR_ANY;
     server.sin_port = htons(port);
      
+    int enable = 1;
+    setsockopt(socket_desc, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+
     if( bind(socket_desc,(struct sockaddr *)&server , sizeof(server)) < 0) {
         perror("bind failed. Error");
         return 1;
     }
-    int enable = 1;
-    setsockopt(socket_desc, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
      
     listen(socket_desc , 3);
      
