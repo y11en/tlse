@@ -109,12 +109,17 @@ int main(int argc, char *argv[]) {
     send_pending(sockfd, context);
     unsigned char client_message[0xFFFF];
     int read_size;
+    int sent = 0;
     while ((read_size = recv(sockfd, client_message, sizeof(client_message) , 0)) > 0) {
         tls_consume_stream(context, client_message, read_size, validate_certificate);
         send_pending(sockfd, context);
         if (tls_established(context)) {
-            tls_write(context, "GET / HTTP/1.1\r\n\r\n", 7);
-            send_pending(sockfd, context);
+            if (!sent) {
+                const char *request = "GET / HTTP/1.1\r\nConnection: close\r\n\r\n";
+                tls_write(context, (unsigned char *)request, strlen(request));
+                send_pending(sockfd, context);
+                sent = 1;
+            }
 
             unsigned char read_buffer[0xFFFF];
             int read_size = tls_read(context, read_buffer, 0xFFFF - 1);
