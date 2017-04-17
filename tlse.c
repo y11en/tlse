@@ -8553,10 +8553,10 @@ static int __private_tls_srtp_key_derive(const void *key, int keylen, const void
 
     symmetric_CTR aes;
 
-    if (ctr_start(find_cipher("aes"), iv, key, keylen, 0, CTR_COUNTER_BIG_ENDIAN, &aes))
+    if (ctr_start(find_cipher("aes"), iv, (const unsigned char *)key, keylen, 0, CTR_COUNTER_BIG_ENDIAN, &aes))
         return TLS_GENERIC_ERROR;
 
-    ctr_encrypt(in, out, outlen, &aes);
+    ctr_encrypt((unsigned char *)in, (unsigned char *)out, outlen, &aes);
     free(in);
     ctr_done(&aes);
     return 0;
@@ -8607,7 +8607,7 @@ int srtp_inline(struct SRTPContext *context, const char *b64, int tag_bits) {
     int len = strlen(b64);
     if (len >= sizeof(out_buffer))
         len = sizeof(out_buffer);
-    int size = __private_b64_decode(b64, len, out_buffer);
+    int size = __private_b64_decode(b64, len, (unsigned char *)out_buffer);
     if (size <= 0)
         return TLS_GENERIC_ERROR;
     switch (context->mode) {
