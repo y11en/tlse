@@ -297,6 +297,7 @@ int tls_clear_certificates(struct TLSContext *context);
 
     struct SRTPContext *srtp_init(unsigned char mode, unsigned char auth_mode);
     int srtp_key(struct SRTPContext *context, const void *key, int keylen, const void *salt, int saltlen, int tag_bits);
+    int srtp_inline(struct SRTPContext *context, const char *b64, int tag_bits);
     int srtp_encrypt(struct SRTPContext *context, unsigned char *pt_header, int pt_len, unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len);
     int srtp_decrypt(struct SRTPContext *context, unsigned char *pt_header, int pt_len, unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len);
     void srtp_destroy(struct SRTPContext *context);
