@@ -8598,6 +8598,27 @@ int srtp_key(struct SRTPContext *context, const void *key, int keylen, const voi
     return 0;
 }
 
+int srtp_inline(struct SRTPContext *context, const char *b64, int tag_bits) {
+    char out_buffer[1024];
+
+    if (!b64)
+        return TLS_GENERIC_ERROR;
+
+    int len = strlen(b64);
+    if (len >= sizeof(out_buffer))
+        len = sizeof(out_buffer);
+    int size = __private_b64_decode(b64, len, out_buffer);
+    if (size <= 0)
+        return TLS_GENERIC_ERROR;
+    switch (context->mode) {
+        case SRTP_AES_CM:
+            if (size < 30)
+                return TLS_BROKEN_PACKET;
+            return srtp_key(context, out_buffer, 16, out_buffer + 16, 14, tag_bits);
+    }
+    return TLS_GENERIC_ERROR;
+}
+
 int srtp_encrypt(struct SRTPContext *context, unsigned char *pt_header, int pt_len, unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len) {
     if ((!context) || (!out) || (!out_buffer_len) || (*out_buffer_len < payload_len))
         return TLS_GENERIC_ERROR;
