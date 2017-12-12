@@ -1,5 +1,5 @@
 /********************************************************************************
- Copyright (c) 2016, Eduard Suica
+ Copyright (c) 2016-2017, Eduard Suica
  All rights reserved.
  
  Redistribution and use in source and binary forms, with or without modification,
@@ -7850,7 +7850,11 @@ struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_le
         TLS_IMPORT_CHECK_SIZE(buf_pos, key_lengths, buf_len)
         memcpy(temp, &buffer[buf_pos], key_lengths);
         buf_pos += key_lengths;
-        
+#ifdef TLS_REEXPORTABLE
+        context->exportable_keys = (unsigned char *)TLS_MALLOC(key_lengths);
+        memcpy(context->exportable_keys, temp, key_lengths);
+        context->exportable_size = key_lengths;
+#endif
         int is_aead = __private_tls_is_aead(context);
 #ifdef TLS_WITH_CHACHA20_POLY1305
         if (is_aead == 2) {
