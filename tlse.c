@@ -1,5 +1,5 @@
 /********************************************************************************
- Copyright (c) 2016-2017, Eduard Suica
+ Copyright (c) 2016-2018, Eduard Suica
  All rights reserved.
  
  Redistribution and use in source and binary forms, with or without modification,
