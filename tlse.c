@@ -3429,7 +3429,7 @@ void tls_packet_update(struct TLSPacket *packet) {
     }
 }
 
-int tls_packet_append(struct TLSPacket *packet, unsigned char *buf, unsigned int len) {
+int tls_packet_append(struct TLSPacket *packet, const unsigned char *buf, unsigned int len) {
     if ((!packet) || (packet->broken))
         return -1;
     
@@ -7539,7 +7539,7 @@ struct TLSPacket *tls_build_done(struct TLSContext *context) {
     return packet;
 }
 
-struct TLSPacket *tls_build_message(struct TLSContext *context, unsigned char *data, unsigned int len) {
+struct TLSPacket *tls_build_message(struct TLSContext *context, const unsigned char *data, unsigned int len) {
     if ((!data) || (!len))
         return 0;
     struct TLSPacket *packet = tls_create_packet(context, TLS_APPLICATION_DATA, context->version, len);
@@ -7555,7 +7555,7 @@ int tls_client_connect(struct TLSContext *context) {
     return __private_tls_write_packet(tls_build_hello(context));
 }
 
-int tls_write(struct TLSContext *context, unsigned char *data, unsigned int len) {
+int tls_write(struct TLSContext *context, const unsigned char *data, unsigned int len) {
     if (!context)
         return TLS_GENERIC_ERROR;
     if (context->connection_status != 0xFF)
@@ -7812,7 +7812,7 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
     return size;
 }
 
-struct TLSContext *tls_import_context(unsigned char *buffer, unsigned int buf_len) {
+struct TLSContext *tls_import_context(const unsigned char *buffer, unsigned int buf_len) {
     if ((!buffer) || (buf_len < 64) || (buffer[0] != TLS_SERIALIZED_OBJECT) || (buffer[5] != 0x01)) {
         DEBUG_PRINT("CANNOT IMPORT CONTEXT BUFFER\n");
         return NULL;
@@ -8436,14 +8436,14 @@ int SSL_shutdown(struct TLSContext *context) {
     return 0;
 }
 
-int SSL_write(struct TLSContext *context, void *buf, unsigned int len) {
+int SSL_write(struct TLSContext *context, const void *buf, unsigned int len) {
     if (!context)
         return TLS_GENERIC_ERROR;
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
     if ((!ssl_data) || (ssl_data->fd <= 0))
         return TLS_GENERIC_ERROR;
     
-    int written_size = tls_write(context, (unsigned char *)buf, len);
+    int written_size = tls_write(context, (const unsigned char *)buf, len);
     if (written_size > 0) {
         int res = __tls_ssl_private_send_pending(ssl_data->fd, context);
         if (res <= 0)
@@ -8631,7 +8631,7 @@ int srtp_inline(struct SRTPContext *context, const char *b64, int tag_bits) {
     return TLS_GENERIC_ERROR;
 }
 
-int srtp_encrypt(struct SRTPContext *context, unsigned char *pt_header, int pt_len, unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len) {
+int srtp_encrypt(struct SRTPContext *context, const unsigned char *pt_header, int pt_len, const unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len) {
     if ((!context) || (!out) || (!out_buffer_len) || (*out_buffer_len < payload_len))
         return TLS_GENERIC_ERROR;
 
@@ -8695,7 +8695,7 @@ int srtp_encrypt(struct SRTPContext *context, unsigned char *pt_header, int pt_l
     return 0;
 }
 
-int srtp_decrypt(struct SRTPContext *context, unsigned char *pt_header, int pt_len, unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len) {
+int srtp_decrypt(struct SRTPContext *context, const unsigned char *pt_header, int pt_len, const unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len) {
     if ((!context) || (!out) || (!out_buffer_len) || (*out_buffer_len < payload_len) || (payload_len < context->tag_size) || (!pt_header) || (pt_len < 12))
         return TLS_GENERIC_ERROR;
 
