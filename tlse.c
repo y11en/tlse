@@ -74,9 +74,15 @@
 //     #define __TLS_DHE_KEY_SIZE          1024
 // #endif
 
-#define TLS_MALLOC(size)        malloc(size)
-#define TLS_REALLOC(ptr, size)  realloc(ptr, size)
-#define TLS_FREE(ptr)           if (ptr) free(ptr)
+#ifndef TLS_MALLOC
+    #define TLS_MALLOC(size)        malloc(size)
+#endif
+#ifndef TLS_REALLOC
+    #define TLS_REALLOC(ptr, size)  realloc(ptr, size)
+#endif
+#ifndef TLS_FREE
+    #define TLS_FREE(ptr)           if (ptr) free(ptr)
+#endif
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...)            fprintf(stderr, __VA_ARGS__)
@@ -8543,7 +8549,7 @@ struct SRTPContext *srtp_init(unsigned char mode, unsigned char auth_mode) {
         default:
             return NULL;
     }
-    context = (struct SRTPContext *)malloc(sizeof(struct SRTPContext));
+    context = (struct SRTPContext *)TLS_MALLOC(sizeof(struct SRTPContext));
     if (context) {
         memset(context, 0, sizeof(struct SRTPContext));
         context->mode = mode;
@@ -8556,7 +8562,7 @@ static int __private_tls_srtp_key_derive(const void *key, int keylen, const void
     unsigned char iv[16];
     memcpy(iv, salt, 14);
     iv[14] = iv[15] = 0;
-    void *in = malloc(outlen);
+    void *in = TLS_MALLOC(outlen);
     if (!in)
         return TLS_GENERIC_ERROR;
     memset(in, 0, outlen);
@@ -8569,7 +8575,7 @@ static int __private_tls_srtp_key_derive(const void *key, int keylen, const void
         return TLS_GENERIC_ERROR;
 
     ctr_encrypt((unsigned char *)in, (unsigned char *)out, outlen, &aes);
-    free(in);
+    TLS_FREE(in);
     ctr_done(&aes);
     return 0;
 }
@@ -8755,7 +8761,7 @@ void srtp_destroy(struct SRTPContext *context) {
     if (context) {
         if (context->mode)
             ctr_done(&context->aes);
-        free(context);
+        TLS_FREE(context);
     }
 }
 
