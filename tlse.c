@@ -47,6 +47,9 @@
 #include <tomcrypt.h>
 #endif
 
+#ifdef WITH_KTLS
+    #include <linux/tls.h>
+#endif
 // using ChaCha20 implementation by D. J. Bernstein
 
 #include "tlse.h"
@@ -8122,6 +8125,51 @@ int tls_default_verify(struct TLSContext *context, struct TLSCertificate **certi
     
     DEBUG_PRINT("Certificate OK\n");
     return no_error;
+}
+
+int tls_make_ktls(struct TLSContext *context, int socket) {
+    if ((!context) || (context->critical_error) || (context->connection_status != 0xFF) || (!context->crypto.created)) {
+        DEBUG_PRINT("CANNOT SWITCH TO kTLS");
+        return TLS_GENERIC_ERROR;
+    }
+    if ((!context->exportable) || (!context->exportable_keys)) {
+        DEBUG_PRINT("KEY MUST BE EXPORTABLE TO BE ABLE TO USE kTLS");
+        return TLS_GENERIC_ERROR;
+    }
+    if ((context->version != TLS_V12) && (context->version != DTLS_V12)) {
+        DEBUG_PRINT("kTLS IS SUPPORTED ONLY FOR TLS 1.2 AND DTLS 1.2");
+        return TLS_FEATURE_NOT_SUPPORTED;
+    }
+    switch (context->cipher) {
+        case TLS_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+        case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+            break;
+        default:
+            DEBUG_PRINT("CIPHER UNSUPPORTED: kTLS SUPPORTS ONLY AES 128 GCM CIPHERS");
+            return TLS_FEATURE_NOT_SUPPORTED;
+    }
+#ifdef WITH_KTLS
+    if (context->exportable_keys_size < TLS_CIPHER_AES_GCM_128_KEY_SIZE) {
+        DEBUG_PRINT("INVALID KEY SIZE");
+        return TLS_GENERIC_ERROR;
+    }
+    struct tls12_crypto_info_aes_gcm_128 crypto_info;
+
+    crypto_info.info.version = TLS_1_2_VERSION;
+    crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_128;
+
+    memset(crypto_info.iv, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+    memcpy(crypto_info.rec_seq, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+    memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+    memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+
+    return setsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
+#else
+    DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT");
+    return TLS_FEATURE_NOT_SUPPORTED;
+#endif
 }
 
 #ifdef DEBUG
