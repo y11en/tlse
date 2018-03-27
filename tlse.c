@@ -8165,7 +8165,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     memcpy(crypto_info.rec_seq, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
     memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
     memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
-
+    setsockopt(socket, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
     return setsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
 #else
     DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT");
