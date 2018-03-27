@@ -48,7 +48,8 @@
 #endif
 
 #ifdef WITH_KTLS
-    #include <linux/tls.h>
+    #include <sys/types.h>
+    #include <sys/socket.h>
 #endif
 // using ChaCha20 implementation by D. J. Bernstein
 
@@ -8151,7 +8152,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
             return TLS_FEATURE_NOT_SUPPORTED;
     }
 #ifdef WITH_KTLS
-    if (context->exportable_keys_size < TLS_CIPHER_AES_GCM_128_KEY_SIZE) {
+    if (context->exportable_size < TLS_CIPHER_AES_GCM_128_KEY_SIZE) {
         DEBUG_PRINT("INVALID KEY SIZE");
         return TLS_GENERIC_ERROR;
     }
