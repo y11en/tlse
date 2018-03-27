@@ -8161,7 +8161,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     crypto_info.info.version = TLS_1_2_VERSION;
     crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_128;
 
-    memset(crypto_info.iv, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+    memcpy(crypto_info.iv, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
     memcpy(crypto_info.rec_seq, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
     memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
     memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
