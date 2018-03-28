@@ -116,8 +116,17 @@ int main(int argc, char *argv[]) {
         if (tls_established(context)) {
             if (!sent) {
                 const char *request = "GET / HTTP/1.1\r\nConnection: close\r\n\r\n";
-                tls_write(context, (unsigned char *)request, strlen(request));
-                send_pending(sockfd, context);
+                // try kTLS (kernel TLS implementation in linux >= 4.13)
+                // note that you can use send on a ktls socket
+                // recv must be handled by TLSe
+                if (!tls_make_ktls(context, socket)) {
+                    // call send as on regular TCP sockets
+                    // TLS record layer is handled by the kernel
+                    send(sockfd, request, strlen(request), 0);
+                } else {
+                    tls_write(context, (unsigned char *)request, strlen(request));
+                    send_pending(sockfd, context);
+                }
                 sent = 1;
             }
 
