@@ -2814,8 +2814,8 @@ int tls_certificate_is_valid(struct TLSCertificate *cert) {
         return certificate_unknown;
     if (!cert->not_after)
         return certificate_unknown;
-    //160224182300Z//
-    char current_time[14];
+    //20160224182300Z//
+    char current_time[16];
     time_t t = time(NULL);
     struct tm *utct = gmtime(&t);
     if (utct) {
@@ -5394,9 +5394,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     }
     
     
-    unsigned short extensions_size = 0;
     if (res > 2) {
-        extensions_size = ntohs(*(unsigned short *)&buf[res]);
         res += 2;
     }
     // ignore extensions for now
