@@ -55,6 +55,9 @@
 #ifdef WITH_KTLS
     #include <sys/types.h>
     #include <sys/socket.h>
+    #include <netinet/tcp.h>
+    // not sure about the correct header
+    #include <linux/tls.h>
 #endif
 // using ChaCha20 implementation by D. J. Bernstein
 
@@ -8173,9 +8176,10 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
 
     crypto_info.info.version = TLS_1_2_VERSION;
     crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_128;
-
-    memcpy(crypto_info.iv, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
-    memcpy(crypto_info.rec_seq, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+ 
+    uint64_t local_sequence_number = htonll(context->local_sequence_number);
+    memcpy(crypto_info.iv, &local_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+    memcpy(crypto_info.rec_seq, &local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
     memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
     memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
     setsockopt(socket, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
