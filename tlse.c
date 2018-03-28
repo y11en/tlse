@@ -5394,9 +5394,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     }
     
     
-    unsigned short extensions_size = 0;
     if (res > 2) {
-        extensions_size = ntohs(*(unsigned short *)&buf[res]);
         res += 2;
     }
     // ignore extensions for now
