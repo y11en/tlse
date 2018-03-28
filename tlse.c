@@ -8144,6 +8144,21 @@ int tls_default_verify(struct TLSContext *context, struct TLSCertificate **certi
     return no_error;
 }
 
+int tls_unmake_ktls(struct TLSContext *context, int socket) {
+#ifdef WITH_KTLS
+    struct tls12_crypto_info_aes_gcm_128 crypto_info;
+    if (getsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info))) {
+        DEBUG_PRINT("ERROR IN getsockopt");
+        return TLS_GENERIC_ERROR;
+    }
+    memcpy(crypto_info.rec_seq, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+    context->local_sequence_number = ntohll(context->local_sequence_number);
+    return 0;
+#endif
+    DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT");
+    return TLS_FEATURE_NOT_SUPPORTED;
+}
+
 int tls_make_ktls(struct TLSContext *context, int socket) {
     if ((!context) || (context->critical_error) || (context->connection_status != 0xFF) || (!context->crypto.created)) {
         DEBUG_PRINT("CANNOT SWITCH TO kTLS");
