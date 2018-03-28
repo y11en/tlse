@@ -56,8 +56,6 @@
     #include <sys/types.h>
     #include <sys/socket.h>
     #include <netinet/tcp.h>
-    // not sure about the correct header
-    #include <linux/tls.h>
 #endif
 // using ChaCha20 implementation by D. J. Bernstein
 
@@ -8147,7 +8145,8 @@ int tls_default_verify(struct TLSContext *context, struct TLSCertificate **certi
 int tls_unmake_ktls(struct TLSContext *context, int socket) {
 #ifdef WITH_KTLS
     struct tls12_crypto_info_aes_gcm_128 crypto_info;
-    if (getsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info))) {
+    socklen_t crypt_info_size = sizeof(crypto_info);
+    if (getsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, &crypt_info_size)) {
         DEBUG_PRINT("ERROR IN getsockopt");
         return TLS_GENERIC_ERROR;
     }
