@@ -47,6 +47,11 @@
 #include <tomcrypt.h>
 #endif
 
+#if (CRYPT <= 0x0117)
+    #define LTC_PKCS_1_EMSA LTC_LTC_PKCS_1_EMSA
+    #define LTC_PKCS_1_V1_5 LTC_LTC_PKCS_1_V1_5
+#endif
+
 #ifdef WITH_KTLS
     #include <sys/types.h>
     #include <sys/socket.h>
@@ -181,6 +186,15 @@
 #define NULL (void *)0
 #endif
 
+#if (CRYPT >= 0x0117) && (0)
+    // to do: use ltc chacha/poly1305 implementation (working on big-endian machines)
+    #define chacha_ctx                                  chacha20poly1305_state
+    #define poly1305_context                            poly1305_state
+
+    #define __private_tls_poly1305_init(ctx, key, len)  poly1305_init(ctx, key, len)
+    #define __private_tls_poly1305_update(ctx, in, len) poly1305_process(ctx, in, len)
+    #define __private_tls_poly1305_finish(ctx, mac)     poly1305_done(ctx, mac, 16)
+#else
 struct chacha_ctx {
     u_int input[16];
     uint8_t ks[CHACHA_BLOCKLEN];
@@ -213,13 +227,13 @@ typedef struct chacha_ctx chacha_ctx;
 #define ROTL32(v, n) \
   (U32V((v) << (n)) | ((v) >> (32 - (n))))
 
-#define U8TO32_LITTLE(p) \
+#define __private_tls_U8TO32_LITTLE(p) \
   (((u32)((p)[0])) | \
    ((u32)((p)[1]) <<  8) | \
    ((u32)((p)[2]) << 16) | \
    ((u32)((p)[3]) << 24))
 
-#define U32TO8_LITTLE(p, v) \
+#define __private_tls_U32TO8_LITTLE(p, v) \
   do { \
     (p)[0] = U8V((v)); \
     (p)[1] = U8V((v) >>  8); \
@@ -244,67 +258,67 @@ static const char tau[] = "expand 16-byte k";
 static inline void chacha_keysetup(chacha_ctx *x, const u8 *k, u32 kbits) {
     const char *constants;
 
-    x->input[4] = U8TO32_LITTLE(k + 0);
-    x->input[5] = U8TO32_LITTLE(k + 4);
-    x->input[6] = U8TO32_LITTLE(k + 8);
-    x->input[7] = U8TO32_LITTLE(k + 12);
+    x->input[4] = __private_tls_U8TO32_LITTLE(k + 0);
+    x->input[5] = __private_tls_U8TO32_LITTLE(k + 4);
+    x->input[6] = __private_tls_U8TO32_LITTLE(k + 8);
+    x->input[7] = __private_tls_U8TO32_LITTLE(k + 12);
     if (kbits == 256) { /* recommended */
         k += 16;
         constants = sigma;
     } else { /* kbits == 128 */
         constants = tau;
     }
-    x->input[8] = U8TO32_LITTLE(k + 0);
-    x->input[9] = U8TO32_LITTLE(k + 4);
-    x->input[10] = U8TO32_LITTLE(k + 8);
-    x->input[11] = U8TO32_LITTLE(k + 12);
-    x->input[0] = U8TO32_LITTLE(constants + 0);
-    x->input[1] = U8TO32_LITTLE(constants + 4);
-    x->input[2] = U8TO32_LITTLE(constants + 8);
-    x->input[3] = U8TO32_LITTLE(constants + 12);
+    x->input[8] = __private_tls_U8TO32_LITTLE(k + 0);
+    x->input[9] = __private_tls_U8TO32_LITTLE(k + 4);
+    x->input[10] = __private_tls_U8TO32_LITTLE(k + 8);
+    x->input[11] = __private_tls_U8TO32_LITTLE(k + 12);
+    x->input[0] = __private_tls_U8TO32_LITTLE(constants + 0);
+    x->input[1] = __private_tls_U8TO32_LITTLE(constants + 4);
+    x->input[2] = __private_tls_U8TO32_LITTLE(constants + 8);
+    x->input[3] = __private_tls_U8TO32_LITTLE(constants + 12);
 }
 
 static inline void chacha_key(chacha_ctx *x, u8 *k) {
-    U32TO8_LITTLE(k, x->input[4]);
-    U32TO8_LITTLE(k + 4, x->input[5]);
-    U32TO8_LITTLE(k + 8, x->input[6]);
-    U32TO8_LITTLE(k + 12, x->input[7]);
+    __private_tls_U32TO8_LITTLE(k, x->input[4]);
+    __private_tls_U32TO8_LITTLE(k + 4, x->input[5]);
+    __private_tls_U32TO8_LITTLE(k + 8, x->input[6]);
+    __private_tls_U32TO8_LITTLE(k + 12, x->input[7]);
 
-    U32TO8_LITTLE(k + 16, x->input[8]);
-    U32TO8_LITTLE(k + 20, x->input[9]);
-    U32TO8_LITTLE(k + 24, x->input[10]);
-    U32TO8_LITTLE(k + 28, x->input[11]);
+    __private_tls_U32TO8_LITTLE(k + 16, x->input[8]);
+    __private_tls_U32TO8_LITTLE(k + 20, x->input[9]);
+    __private_tls_U32TO8_LITTLE(k + 24, x->input[10]);
+    __private_tls_U32TO8_LITTLE(k + 28, x->input[11]);
 }
 
 static inline void chacha_nonce(chacha_ctx *x, u8 *nonce) {
-    U32TO8_LITTLE(nonce + 0, x->input[13]);
-    U32TO8_LITTLE(nonce + 4, x->input[14]);
-    U32TO8_LITTLE(nonce + 8, x->input[15]);
+    __private_tls_U32TO8_LITTLE(nonce + 0, x->input[13]);
+    __private_tls_U32TO8_LITTLE(nonce + 4, x->input[14]);
+    __private_tls_U32TO8_LITTLE(nonce + 8, x->input[15]);
 }
 
 static inline void chacha_ivsetup(chacha_ctx *x, const u8 *iv, const u8 *counter) {
-    x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
-    x->input[13] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 4);
+    x->input[12] = counter == NULL ? 0 : __private_tls_U8TO32_LITTLE(counter + 0);
+    x->input[13] = counter == NULL ? 0 : __private_tls_U8TO32_LITTLE(counter + 4);
     if (iv) {
-        x->input[14] = U8TO32_LITTLE(iv + 0);
-        x->input[15] = U8TO32_LITTLE(iv + 4);
+        x->input[14] = __private_tls_U8TO32_LITTLE(iv + 0);
+        x->input[15] = __private_tls_U8TO32_LITTLE(iv + 4);
     }
 }
 
 static inline void chacha_ivsetup_96bitnonce(chacha_ctx *x, const u8 *iv, const u8 *counter) {
-    x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
+    x->input[12] = counter == NULL ? 0 : __private_tls_U8TO32_LITTLE(counter + 0);
     if (iv) {
-        x->input[13] = U8TO32_LITTLE(iv + 0);
-        x->input[14] = U8TO32_LITTLE(iv + 4);
-        x->input[15] = U8TO32_LITTLE(iv + 8);
+        x->input[13] = __private_tls_U8TO32_LITTLE(iv + 0);
+        x->input[14] = __private_tls_U8TO32_LITTLE(iv + 4);
+        x->input[15] = __private_tls_U8TO32_LITTLE(iv + 8);
     }
 }
 
 static inline void chacha_ivupdate(chacha_ctx *x, const u8 *iv, const u8 *aad, const u8 *counter) {
-    x->input[12] = counter == NULL ? 0 : U8TO32_LITTLE(counter + 0);
-    x->input[13] = U8TO32_LITTLE(iv + 0);
-    x->input[14] = U8TO32_LITTLE(iv + 4) ^ U8TO32_LITTLE(aad);
-    x->input[15] = U8TO32_LITTLE(iv + 8) ^ U8TO32_LITTLE(aad + 4);
+    x->input[12] = counter == NULL ? 0 : __private_tls_U8TO32_LITTLE(counter + 0);
+    x->input[13] = __private_tls_U8TO32_LITTLE(iv + 0);
+    x->input[14] = __private_tls_U8TO32_LITTLE(iv + 4) ^ __private_tls_U8TO32_LITTLE(aad);
+    x->input[15] = __private_tls_U8TO32_LITTLE(iv + 8) ^ __private_tls_U8TO32_LITTLE(aad + 4);
 }
 
 static inline void chacha_encrypt_bytes(chacha_ctx *x, const u8 *m, u8 *c, u32 bytes) {
@@ -388,40 +402,40 @@ static inline void chacha_encrypt_bytes(chacha_ctx *x, const u8 *m, u8 *c, u32 b
         x15 = PLUS(x15, j15);
 
         if (bytes < 64) {
-            U32TO8_LITTLE(x->ks + 0, x0);
-            U32TO8_LITTLE(x->ks + 4, x1);
-            U32TO8_LITTLE(x->ks + 8, x2);
-            U32TO8_LITTLE(x->ks + 12, x3);
-            U32TO8_LITTLE(x->ks + 16, x4);
-            U32TO8_LITTLE(x->ks + 20, x5);
-            U32TO8_LITTLE(x->ks + 24, x6);
-            U32TO8_LITTLE(x->ks + 28, x7);
-            U32TO8_LITTLE(x->ks + 32, x8);
-            U32TO8_LITTLE(x->ks + 36, x9);
-            U32TO8_LITTLE(x->ks + 40, x10);
-            U32TO8_LITTLE(x->ks + 44, x11);
-            U32TO8_LITTLE(x->ks + 48, x12);
-            U32TO8_LITTLE(x->ks + 52, x13);
-            U32TO8_LITTLE(x->ks + 56, x14);
-            U32TO8_LITTLE(x->ks + 60, x15);
+            __private_tls_U32TO8_LITTLE(x->ks + 0, x0);
+            __private_tls_U32TO8_LITTLE(x->ks + 4, x1);
+            __private_tls_U32TO8_LITTLE(x->ks + 8, x2);
+            __private_tls_U32TO8_LITTLE(x->ks + 12, x3);
+            __private_tls_U32TO8_LITTLE(x->ks + 16, x4);
+            __private_tls_U32TO8_LITTLE(x->ks + 20, x5);
+            __private_tls_U32TO8_LITTLE(x->ks + 24, x6);
+            __private_tls_U32TO8_LITTLE(x->ks + 28, x7);
+            __private_tls_U32TO8_LITTLE(x->ks + 32, x8);
+            __private_tls_U32TO8_LITTLE(x->ks + 36, x9);
+            __private_tls_U32TO8_LITTLE(x->ks + 40, x10);
+            __private_tls_U32TO8_LITTLE(x->ks + 44, x11);
+            __private_tls_U32TO8_LITTLE(x->ks + 48, x12);
+            __private_tls_U32TO8_LITTLE(x->ks + 52, x13);
+            __private_tls_U32TO8_LITTLE(x->ks + 56, x14);
+            __private_tls_U32TO8_LITTLE(x->ks + 60, x15);
         }
 
-        x0 = XOR(x0, U8TO32_LITTLE(m + 0));
-        x1 = XOR(x1, U8TO32_LITTLE(m + 4));
-        x2 = XOR(x2, U8TO32_LITTLE(m + 8));
-        x3 = XOR(x3, U8TO32_LITTLE(m + 12));
-        x4 = XOR(x4, U8TO32_LITTLE(m + 16));
-        x5 = XOR(x5, U8TO32_LITTLE(m + 20));
-        x6 = XOR(x6, U8TO32_LITTLE(m + 24));
-        x7 = XOR(x7, U8TO32_LITTLE(m + 28));
-        x8 = XOR(x8, U8TO32_LITTLE(m + 32));
-        x9 = XOR(x9, U8TO32_LITTLE(m + 36));
-        x10 = XOR(x10, U8TO32_LITTLE(m + 40));
-        x11 = XOR(x11, U8TO32_LITTLE(m + 44));
-        x12 = XOR(x12, U8TO32_LITTLE(m + 48));
-        x13 = XOR(x13, U8TO32_LITTLE(m + 52));
-        x14 = XOR(x14, U8TO32_LITTLE(m + 56));
-        x15 = XOR(x15, U8TO32_LITTLE(m + 60));
+        x0 = XOR(x0, __private_tls_U8TO32_LITTLE(m + 0));
+        x1 = XOR(x1, __private_tls_U8TO32_LITTLE(m + 4));
+        x2 = XOR(x2, __private_tls_U8TO32_LITTLE(m + 8));
+        x3 = XOR(x3, __private_tls_U8TO32_LITTLE(m + 12));
+        x4 = XOR(x4, __private_tls_U8TO32_LITTLE(m + 16));
+        x5 = XOR(x5, __private_tls_U8TO32_LITTLE(m + 20));
+        x6 = XOR(x6, __private_tls_U8TO32_LITTLE(m + 24));
+        x7 = XOR(x7, __private_tls_U8TO32_LITTLE(m + 28));
+        x8 = XOR(x8, __private_tls_U8TO32_LITTLE(m + 32));
+        x9 = XOR(x9, __private_tls_U8TO32_LITTLE(m + 36));
+        x10 = XOR(x10, __private_tls_U8TO32_LITTLE(m + 40));
+        x11 = XOR(x11, __private_tls_U8TO32_LITTLE(m + 44));
+        x12 = XOR(x12, __private_tls_U8TO32_LITTLE(m + 48));
+        x13 = XOR(x13, __private_tls_U8TO32_LITTLE(m + 52));
+        x14 = XOR(x14, __private_tls_U8TO32_LITTLE(m + 56));
+        x15 = XOR(x15, __private_tls_U8TO32_LITTLE(m + 60));
 
         j12 = PLUSONE(j12);
         if (!j12) {
@@ -432,22 +446,22 @@ static inline void chacha_encrypt_bytes(chacha_ctx *x, const u8 *m, u8 *c, u32 b
              */
         }
 
-        U32TO8_LITTLE(c + 0, x0);
-        U32TO8_LITTLE(c + 4, x1);
-        U32TO8_LITTLE(c + 8, x2);
-        U32TO8_LITTLE(c + 12, x3);
-        U32TO8_LITTLE(c + 16, x4);
-        U32TO8_LITTLE(c + 20, x5);
-        U32TO8_LITTLE(c + 24, x6);
-        U32TO8_LITTLE(c + 28, x7);
-        U32TO8_LITTLE(c + 32, x8);
-        U32TO8_LITTLE(c + 36, x9);
-        U32TO8_LITTLE(c + 40, x10);
-        U32TO8_LITTLE(c + 44, x11);
-        U32TO8_LITTLE(c + 48, x12);
-        U32TO8_LITTLE(c + 52, x13);
-        U32TO8_LITTLE(c + 56, x14);
-        U32TO8_LITTLE(c + 60, x15);
+        __private_tls_U32TO8_LITTLE(c + 0, x0);
+        __private_tls_U32TO8_LITTLE(c + 4, x1);
+        __private_tls_U32TO8_LITTLE(c + 8, x2);
+        __private_tls_U32TO8_LITTLE(c + 12, x3);
+        __private_tls_U32TO8_LITTLE(c + 16, x4);
+        __private_tls_U32TO8_LITTLE(c + 20, x5);
+        __private_tls_U32TO8_LITTLE(c + 24, x6);
+        __private_tls_U32TO8_LITTLE(c + 28, x7);
+        __private_tls_U32TO8_LITTLE(c + 32, x8);
+        __private_tls_U32TO8_LITTLE(c + 36, x9);
+        __private_tls_U32TO8_LITTLE(c + 40, x10);
+        __private_tls_U32TO8_LITTLE(c + 44, x11);
+        __private_tls_U32TO8_LITTLE(c + 48, x12);
+        __private_tls_U32TO8_LITTLE(c + 52, x13);
+        __private_tls_U32TO8_LITTLE(c + 56, x14);
+        __private_tls_U32TO8_LITTLE(c + 60, x15);
 
         if (bytes <= 64) {
             if (bytes < 64) {
@@ -486,7 +500,7 @@ static inline void chacha20_block(chacha_ctx *x, unsigned char *c, int len) {
         x->input[i] = PLUS(x->input[i], state[i]);
 
     for (i = 0; i < len; i += 4) {
-        U32TO8_LITTLE(c + i, x->input[i/4]);
+        __private_tls_U32TO8_LITTLE(c + i, x->input[i/4]);
     }
 }
 
@@ -521,7 +535,7 @@ typedef struct poly1305_state_internal_t {
 } poly1305_state_internal_t;
 
 /* interpret four 8 bit unsigned integers as a 32 bit unsigned integer in little endian */
-static unsigned long U8TO32(const unsigned char *p) {
+static unsigned long __private_tls_U8TO32(const unsigned char *p) {
     return
         (((unsigned long)(p[0] & 0xff)      ) |
          ((unsigned long)(p[1] & 0xff) <<  8) |
@@ -530,22 +544,22 @@ static unsigned long U8TO32(const unsigned char *p) {
 }
 
 /* store a 32 bit unsigned integer as four 8 bit unsigned integers in little endian */
-static void U32TO8(unsigned char *p, unsigned long v) {
+static void __private_tls_U32TO8(unsigned char *p, unsigned long v) {
     p[0] = (v      ) & 0xff;
     p[1] = (v >>  8) & 0xff;
     p[2] = (v >> 16) & 0xff;
     p[3] = (v >> 24) & 0xff;
 }
 
-void poly1305_init(poly1305_context *ctx, const unsigned char key[32]) {
+void __private_tls_poly1305_init(poly1305_context *ctx, const unsigned char key[32]) {
     poly1305_state_internal_t *st = (poly1305_state_internal_t *)ctx;
 
     /* r &= 0xffffffc0ffffffc0ffffffc0fffffff */
-    st->r[0] = (U8TO32(&key[ 0])     ) & 0x3ffffff;
-    st->r[1] = (U8TO32(&key[ 3]) >> 2) & 0x3ffff03;
-    st->r[2] = (U8TO32(&key[ 6]) >> 4) & 0x3ffc0ff;
-    st->r[3] = (U8TO32(&key[ 9]) >> 6) & 0x3f03fff;
-    st->r[4] = (U8TO32(&key[12]) >> 8) & 0x00fffff;
+    st->r[0] = (__private_tls_U8TO32(&key[ 0])     ) & 0x3ffffff;
+    st->r[1] = (__private_tls_U8TO32(&key[ 3]) >> 2) & 0x3ffff03;
+    st->r[2] = (__private_tls_U8TO32(&key[ 6]) >> 4) & 0x3ffc0ff;
+    st->r[3] = (__private_tls_U8TO32(&key[ 9]) >> 6) & 0x3f03fff;
+    st->r[4] = (__private_tls_U8TO32(&key[12]) >> 8) & 0x00fffff;
 
     /* h = 0 */
     st->h[0] = 0;
@@ -555,16 +569,16 @@ void poly1305_init(poly1305_context *ctx, const unsigned char key[32]) {
     st->h[4] = 0;
 
     /* save pad for later */
-    st->pad[0] = U8TO32(&key[16]);
-    st->pad[1] = U8TO32(&key[20]);
-    st->pad[2] = U8TO32(&key[24]);
-    st->pad[3] = U8TO32(&key[28]);
+    st->pad[0] = __private_tls_U8TO32(&key[16]);
+    st->pad[1] = __private_tls_U8TO32(&key[20]);
+    st->pad[2] = __private_tls_U8TO32(&key[24]);
+    st->pad[3] = __private_tls_U8TO32(&key[28]);
 
     st->leftover = 0;
     st->final = 0;
 }
 
-static void poly1305_blocks(poly1305_state_internal_t *st, const unsigned char *m, size_t bytes) {
+static void __private_tls_poly1305_blocks(poly1305_state_internal_t *st, const unsigned char *m, size_t bytes) {
     const unsigned long hibit = (st->final) ? 0 : (1UL << 24); /* 1 << 128 */
     unsigned long r0,r1,r2,r3,r4;
     unsigned long s1,s2,s3,s4;
@@ -591,11 +605,11 @@ static void poly1305_blocks(poly1305_state_internal_t *st, const unsigned char *
 
     while (bytes >= poly1305_block_size) {
         /* h += m[i] */
-        h0 += (U8TO32(m+ 0)     ) & 0x3ffffff;
-        h1 += (U8TO32(m+ 3) >> 2) & 0x3ffffff;
-        h2 += (U8TO32(m+ 6) >> 4) & 0x3ffffff;
-        h3 += (U8TO32(m+ 9) >> 6) & 0x3ffffff;
-        h4 += (U8TO32(m+12) >> 8) | hibit;
+        h0 += (__private_tls_U8TO32(m+ 0)     ) & 0x3ffffff;
+        h1 += (__private_tls_U8TO32(m+ 3) >> 2) & 0x3ffffff;
+        h2 += (__private_tls_U8TO32(m+ 6) >> 4) & 0x3ffffff;
+        h3 += (__private_tls_U8TO32(m+ 9) >> 6) & 0x3ffffff;
+        h4 += (__private_tls_U8TO32(m+12) >> 8) | hibit;
 
         /* h *= r */
         d0 = ((unsigned long long)h0 * r0) + ((unsigned long long)h1 * s4) + ((unsigned long long)h2 * s3) + ((unsigned long long)h3 * s2) + ((unsigned long long)h4 * s1);
@@ -624,7 +638,7 @@ static void poly1305_blocks(poly1305_state_internal_t *st, const unsigned char *
     st->h[4] = h4;
 }
 
-void poly1305_finish(poly1305_context *ctx, unsigned char mac[16]) {
+void __private_tls_poly1305_finish(poly1305_context *ctx, unsigned char mac[16]) {
     poly1305_state_internal_t *st = (poly1305_state_internal_t *)ctx;
     unsigned long h0,h1,h2,h3,h4,c;
     unsigned long g0,g1,g2,g3,g4;
@@ -638,7 +652,7 @@ void poly1305_finish(poly1305_context *ctx, unsigned char mac[16]) {
         for (; i < poly1305_block_size; i++)
             st->buffer[i] = 0;
         st->final = 1;
-        poly1305_blocks(st, st->buffer, poly1305_block_size);
+        __private_tls_poly1305_blocks(st, st->buffer, poly1305_block_size);
     }
 
     /* fully carry h */
@@ -688,10 +702,10 @@ void poly1305_finish(poly1305_context *ctx, unsigned char mac[16]) {
     f = (unsigned long long)h2 + st->pad[2] + (f >> 32); h2 = (unsigned long)f;
     f = (unsigned long long)h3 + st->pad[3] + (f >> 32); h3 = (unsigned long)f;
 
-    U32TO8(mac +  0, h0);
-    U32TO8(mac +  4, h1);
-    U32TO8(mac +  8, h2);
-    U32TO8(mac + 12, h3);
+    __private_tls_U32TO8(mac +  0, h0);
+    __private_tls_U32TO8(mac +  4, h1);
+    __private_tls_U32TO8(mac +  8, h2);
+    __private_tls_U32TO8(mac + 12, h3);
 
     /* zero out the state */
     st->h[0] = 0;
@@ -710,7 +724,7 @@ void poly1305_finish(poly1305_context *ctx, unsigned char mac[16]) {
     st->pad[3] = 0;
 }
 
-void poly1305_update(poly1305_context *ctx, const unsigned char *m, size_t bytes) {
+void __private_tls_poly1305_update(poly1305_context *ctx, const unsigned char *m, size_t bytes) {
     poly1305_state_internal_t *st = (poly1305_state_internal_t *)ctx;
     size_t i;
     /* handle leftover */
@@ -725,14 +739,14 @@ void poly1305_update(poly1305_context *ctx, const unsigned char *m, size_t bytes
         st->leftover += want;
         if (st->leftover < poly1305_block_size)
             return;
-        poly1305_blocks(st, st->buffer, poly1305_block_size);
+        __private_tls_poly1305_blocks(st, st->buffer, poly1305_block_size);
         st->leftover = 0;
     }
 
     /* process full blocks */
     if (bytes >= poly1305_block_size) {
         size_t want = (bytes & ~(poly1305_block_size - 1));
-        poly1305_blocks(st, m, want);
+        __private_tls_poly1305_blocks(st, m, want);
         m += want;
         bytes -= want;
     }
@@ -772,27 +786,28 @@ int chacha20_poly1305_aead(struct chacha_ctx *ctx,  unsigned char *pt, unsigned 
     chacha_encrypt_bytes(ctx, pt, out, len);
     
     poly1305_context aead_ctx;
-    poly1305_init(&aead_ctx, poly_key);
-    poly1305_update(&aead_ctx, aad, aad_len);
+    __private_tls_poly1305_init(&aead_ctx, poly_key);
+    __private_tls_poly1305_update(&aead_ctx, aad, aad_len);
     int rem = aad_len % 16;
     if (rem)
-        poly1305_update(&aead_ctx, zeropad, 16 - rem);
-    poly1305_update(&aead_ctx, out, len);
+        __private_tls_poly1305_update(&aead_ctx, zeropad, 16 - rem);
+    __private_tls_poly1305_update(&aead_ctx, out, len);
     rem = len % 16;
     if (rem)
-        poly1305_update(&aead_ctx, zeropad, 16 - rem);
+        __private_tls_poly1305_update(&aead_ctx, zeropad, 16 - rem);
 
     unsigned char trail[16];
-    U32TO8(&trail[0], aad_len);
+    __private_tls_U32TO8(&trail[0], aad_len);
     *(int *)&trail[4] = 0;
-    U32TO8(&trail[8], len);
+    __private_tls_U32TO8(&trail[8], len);
     *(int *)&trail[12] = 0;
 
-    poly1305_update(&aead_ctx, trail, 16);
-    poly1305_finish(&aead_ctx, out + len);
+    __private_tls_poly1305_update(&aead_ctx, trail, 16);
+    __private_tls_poly1305_finish(&aead_ctx, out + len);
     
     return len + POLY1305_TAGLEN;
 }
+#endif
 #endif
 
 typedef enum {
@@ -1449,7 +1464,7 @@ unsigned char *__private_tls_decrypt_rsa(struct TLSContext *context, const unsig
     unsigned long out_size = len;
     int hash_idx = find_hash("sha256");
     int res = 0;
-    err = rsa_decrypt_key_ex(buffer, len, out, &out_size, (unsigned char *)"Concept", 7, hash_idx, LTC_LTC_PKCS_1_V1_5, &res, &key);
+    err = rsa_decrypt_key_ex(buffer, len, out, &out_size, (unsigned char *)"Concept", 7, hash_idx, LTC_PKCS_1_V1_5, &res, &key);
     rsa_free(&key);
     if ((err) || (!out_size)) {
         DEBUG_PRINT("RSA DECRYPT ERROR\n");
@@ -1480,7 +1495,7 @@ unsigned char *__private_tls_encrypt_rsa(struct TLSContext *context, const unsig
     unsigned char *out = (unsigned char *)TLS_MALLOC(out_size);
     int hash_idx = find_hash("sha256");
     int prng_idx = find_prng("sprng");
-    err = rsa_encrypt_key_ex(buffer, len, out, &out_size, (unsigned char *)"Concept", 7, NULL, prng_idx, hash_idx, LTC_LTC_PKCS_1_V1_5, &key);
+    err = rsa_encrypt_key_ex(buffer, len, out, &out_size, (unsigned char *)"Concept", 7, NULL, prng_idx, hash_idx, LTC_PKCS_1_V1_5, &key);
     rsa_free(&key);
     if ((err) || (!out_size)) {
         TLS_FREE(out);
@@ -1529,7 +1544,7 @@ int __private_rsa_verify_hash_md5sha1(const unsigned char *sig, unsigned long si
     }
     
     int decoded = 0;
-    err = pkcs_1_v1_5_decode(tmpbuf, x, LTC_LTC_PKCS_1_EMSA, modulus_bitlen, out, &out_len, &decoded);
+    err = pkcs_1_v1_5_decode(tmpbuf, x, LTC_PKCS_1_EMSA, modulus_bitlen, out, &out_len, &decoded);
     if (decoded) {
         if (out_len == hashlen) {
             if (!memcmp(out, hash, hashlen))
@@ -1659,7 +1674,7 @@ int __private_tls_verify_rsa(struct TLSContext *context, unsigned int hash_type,
         err = __private_rsa_verify_hash_md5sha1(buffer, len, hash, hash_len, &rsa_stat, &key);
     else
 #endif
-        err = rsa_verify_hash_ex(buffer, len, hash, hash_len, LTC_LTC_PKCS_1_V1_5, hash_idx, 0, &rsa_stat, &key);
+        err = rsa_verify_hash_ex(buffer, len, hash, hash_len, LTC_PKCS_1_V1_5, hash_idx, 0, &rsa_stat, &key);
     rsa_free(&key);
     if (err)
         return 0;
@@ -1682,7 +1697,7 @@ int __private_rsa_sign_hash_md5sha1(const unsigned char *in, unsigned long inlen
         return CRYPT_BUFFER_OVERFLOW;
     }
     x = modulus_bytelen;
-    err = pkcs_1_v1_5_encode(in, inlen, LTC_LTC_PKCS_1_EMSA, modulus_bitlen, NULL, 0, out, &x);
+    err = pkcs_1_v1_5_encode(in, inlen, LTC_PKCS_1_EMSA, modulus_bitlen, NULL, 0, out, &x);
     if (err != CRYPT_OK)
         return err;
     
@@ -1798,7 +1813,7 @@ int __private_tls_sign_rsa(struct TLSContext *context, unsigned int hash_type, c
             DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
             return TLS_GENERIC_ERROR;
         }
-        err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_LTC_PKCS_1_V1_5, NULL, find_prng("sprng"), hash_idx, 0, &key);
+        err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_PKCS_1_V1_5, NULL, find_prng("sprng"), hash_idx, 0, &key);
     }
     rsa_free(&key);
     if (err)
@@ -6526,22 +6541,22 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
 
             chacha20_poly1305_key(&context->crypto.ctx_remote.chacha_remote, poly1305_key);
             poly1305_context ctx;
-            poly1305_init(&ctx, poly1305_key);
-            poly1305_update(&ctx, aad, 16);
-            poly1305_update(&ctx, buf + header_size, pt_length);
+            __private_tls_poly1305_init(&ctx, poly1305_key);
+            __private_tls_poly1305_update(&ctx, aad, 16);
+            __private_tls_poly1305_update(&ctx, buf + header_size, pt_length);
             int rem = pt_length % 16;
             if (rem) {
                 static unsigned char zeropad[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-                poly1305_update(&ctx, zeropad, 16 - rem);
+                __private_tls_poly1305_update(&ctx, zeropad, 16 - rem);
             }
             
-            U32TO8(&trail[0], 13);
+            __private_tls_U32TO8(&trail[0], 13);
             *(int *)&trail[4] = 0;
-            U32TO8(&trail[8], pt_length);
+            __private_tls_U32TO8(&trail[8], pt_length);
             *(int *)&trail[12] = 0;
 
-            poly1305_update(&ctx, trail, 16);
-            poly1305_finish(&ctx, mac_tag);
+            __private_tls_poly1305_update(&ctx, trail, 16);
+            __private_tls_poly1305_finish(&ctx, mac_tag);
             if (memcmp(mac_tag, buf + header_size + pt_length, POLY1305_TAGLEN)) {
                 DEBUG_PRINT("INTEGRITY CHECK FAILED (msg length %i)\n", length);
                 DEBUG_DUMP_HEX_LABEL("POLY1305 TAG RECEIVED", buf + header_size + pt_length, POLY1305_TAGLEN);
@@ -6897,7 +6912,7 @@ int tls_certificate_verify_signature(struct TLSCertificate *cert, struct TLSCert
         signature++;
         signature_len--;
     }
-    err = rsa_verify_hash_ex(signature, signature_len, cert->fingerprint, hash_len, LTC_LTC_PKCS_1_V1_5, hash_index, 0, &rsa_stat, &key);
+    err = rsa_verify_hash_ex(signature, signature_len, cert->fingerprint, hash_len, LTC_PKCS_1_V1_5, hash_index, 0, &rsa_stat, &key);
     rsa_free(&key);
     if (err) {
         DEBUG_PRINT("HASH VERIFY ERROR %i\n", err);
