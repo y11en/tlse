@@ -249,6 +249,7 @@ const char *tls_alpn(struct TLSContext *context);
 // useful when renewing certificates for servers, without the need to restart the server
 int tls_clear_certificates(struct TLSContext *context);
 int tls_make_ktls(struct TLSContext *context, int socket);
+int tls_unmake_ktls(struct TLSContext *context, int socket);
 
 #ifdef SSL_COMPATIBLE_INTERFACE
     #define SSL_SERVER_RSA_CERT 1
