@@ -120,6 +120,10 @@
     #define TLS_CIPHERS_SIZE(n, mitigated)         (n + mitigated) * 2
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum {
     close_notify = 0,
     unexpected_message = 10,
@@ -315,6 +319,10 @@ int tls_unmake_ktls(struct TLSContext *context, int socket);
     int srtp_encrypt(struct SRTPContext *context, const unsigned char *pt_header, int pt_len, const unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len);
     int srtp_decrypt(struct SRTPContext *context, const unsigned char *pt_header, int pt_len, const unsigned char *payload, unsigned int payload_len, unsigned char *out, int *out_buffer_len);
     void srtp_destroy(struct SRTPContext *context);
+#endif
+
+#ifdef __cplusplus
+}  // extern "C"
 #endif
 
 #endif
