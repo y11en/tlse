@@ -1400,7 +1400,7 @@ unsigned char *__private_tls_decrypt_dhe(struct TLSContext *context, const unsig
         TLS_FREE(out);
         return NULL;
     }
-    DEBUG_PRINT("OUT_SIZE: %i\n", out_size);
+    DEBUG_PRINT("OUT_SIZE: %lu\n", out_size);
     DEBUG_DUMP_HEX_LABEL("DHE", out, out_size);
     *size = (unsigned int)out_size;
     return out;
@@ -1439,7 +1439,7 @@ unsigned char *__private_tls_decrypt_ecc_dhe(struct TLSContext *context, const u
         TLS_FREE(out);
         return NULL;
     }
-    DEBUG_PRINT("OUT_SIZE: %i\n", out_size);
+    DEBUG_PRINT("OUT_SIZE: %lu\n", out_size);
     DEBUG_DUMP_HEX_LABEL("ECC DHE", out, out_size);
     *size = (unsigned int)out_size;
     return out;
@@ -4571,7 +4571,7 @@ struct TLSPacket *tls_build_client_key_exchange(struct TLSContext *context) {
             unsigned long dh_Ys_len = sizeof(dh_Ys);
             
             if (__private_tls_dh_export_pqY(dh_p, &dh_p_len, dh_g, &dh_g_len, dh_Ys, &dh_Ys_len, context->dhe)) {
-                DEBUG_PRINT("ERROR EXPORTING DHE KEY %x\n", context->dhe);
+                DEBUG_PRINT("ERROR EXPORTING DHE KEY %p\n", context->dhe);
                 TLS_FREE(packet);
                 __private_tls_dhe_free(context);
                 return NULL;
@@ -4678,7 +4678,7 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
             return NULL;
         }
         
-        DEBUG_PRINT("LEN: %i (%i, %i)\n", dh_Ys_len, dh_p_len, dh_g_len);
+        DEBUG_PRINT("LEN: %lu (%lu, %lu)\n", dh_Ys_len, dh_p_len, dh_g_len);
         DEBUG_DUMP_HEX_LABEL("DHE PK", dh_Ys, dh_Ys_len);
         DEBUG_DUMP_HEX_LABEL("DHE P", dh_p, dh_p_len);
         DEBUG_DUMP_HEX_LABEL("DHE G", dh_g, dh_g_len);
@@ -4767,14 +4767,14 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
 #ifdef TLS_ECDSA_SUPPORTED
         if (tls_is_ecdsa(context)) {
             if (__private_tls_sign_ecdsa(context, hash_algorithm, message, message_len, out, &out_len) == 1) {
-                DEBUG_PRINT("Signing OK! (ECDSA, length %i)\n", out_len);
+                DEBUG_PRINT("Signing OK! (ECDSA, length %lu)\n", out_len);
                 tls_packet_uint16(packet, out_len);
                 tls_packet_append(packet, out, out_len);
             }
         } else
 #endif
         if (__private_tls_sign_rsa(context, hash_algorithm, message, message_len, out, &out_len) == 1) {
-            DEBUG_PRINT("Signing OK! (length %i)\n", out_len);
+            DEBUG_PRINT("Signing OK! (length %lu)\n", out_len);
             tls_packet_uint16(packet, out_len);
             tls_packet_append(packet, out, out_len);
         }
