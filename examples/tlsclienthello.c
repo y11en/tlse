@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
 
     struct TLSContext *context = tls_create_context(0, TLS_V12);
     // the next line is needed only if you want to serialize the connection context or kTLS is used
-    tls_make_exportable(context);
+    tls_make_exportable(context, 1);
     tls_client_connect(context);
     send_pending(sockfd, context);
     unsigned char client_message[0xFFFF];
