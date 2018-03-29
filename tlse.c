@@ -1364,7 +1364,7 @@ int __private_tls_dh_shared_secret(DHKey *private_key, DHKey *public_key, unsign
 unsigned char *__private_tls_decrypt_dhe(struct TLSContext *context, const unsigned char *buffer, unsigned int len, unsigned int *size, int clear_key) {
     *size = 0;
     if ((!len) || (!context) || (!context->dhe)) {
-        DEBUG_PRINT("No private DHE key set");
+        DEBUG_PRINT("No private DHE key set\n");
         return NULL;
     }
     
@@ -1409,7 +1409,7 @@ unsigned char *__private_tls_decrypt_dhe(struct TLSContext *context, const unsig
 unsigned char *__private_tls_decrypt_ecc_dhe(struct TLSContext *context, const unsigned char *buffer, unsigned int len, unsigned int *size, int clear_key) {
     *size = 0;
     if ((!len) || (!context) || (!context->ecc_dhe)) {
-        DEBUG_PRINT("No private ECC DHE key set");
+        DEBUG_PRINT("No private ECC DHE key set\n");
         return NULL;
     }
     
@@ -1449,7 +1449,7 @@ unsigned char *__private_tls_decrypt_ecc_dhe(struct TLSContext *context, const u
 unsigned char *__private_tls_decrypt_rsa(struct TLSContext *context, const unsigned char *buffer, unsigned int len, unsigned int *size) {
     *size = 0;
     if ((!len) || (!context) || (!context->private_key) || (!context->private_key->der_bytes) || (!context->private_key->der_len)) {
-        DEBUG_PRINT("No private key set");
+        DEBUG_PRINT("No private key set\n");
         return NULL;
     }
     tls_init();
@@ -1458,7 +1458,7 @@ unsigned char *__private_tls_decrypt_rsa(struct TLSContext *context, const unsig
     err = rsa_import(context->private_key->der_bytes, context->private_key->der_len, &key);
     
     if (err) {
-        DEBUG_PRINT("Error importing RSA key (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA key (code: %i)\n", err);
         return NULL;
     }
     unsigned char *out = (unsigned char *)TLS_MALLOC(len);
@@ -1489,7 +1489,7 @@ unsigned char *__private_tls_encrypt_rsa(struct TLSContext *context, const unsig
     err = rsa_import(context->certificates[0]->der_bytes, context->certificates[0]->der_len, &key);
     
     if (err) {
-        DEBUG_PRINT("Error importing RSA certificate (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)\n", err);
         return NULL;
     }
     unsigned long out_size = __TLS_MAX_RSA_KEY;
@@ -1580,7 +1580,7 @@ int __private_tls_verify_rsa(struct TLSContext *context, unsigned int hash_type,
         err = rsa_import(context->certificates[0]->der_bytes, context->certificates[0]->der_len, &key);
     }
     if (err) {
-        DEBUG_PRINT("Error importing RSA certificate (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)\n", err);
         return TLS_GENERIC_ERROR;
     }
     int hash_idx = -1;
@@ -1708,7 +1708,7 @@ int __private_rsa_sign_hash_md5sha1(const unsigned char *in, unsigned long inlen
 
 int __private_tls_sign_rsa(struct TLSContext *context, unsigned int hash_type, const unsigned char *message, unsigned int message_len, unsigned char *out, unsigned long *outlen) {
     if ((!outlen) || (!context) || (!out) || (!outlen) || (!context->private_key) || (!context->private_key->der_bytes) || (!context->private_key->der_len)) {
-        DEBUG_PRINT("No private key set");
+        DEBUG_PRINT("No private key set\n");
         return TLS_GENERIC_ERROR;
     }
     tls_init();
@@ -1717,7 +1717,7 @@ int __private_tls_sign_rsa(struct TLSContext *context, unsigned int hash_type, c
     err = rsa_import(context->private_key->der_bytes, context->private_key->der_len, &key);
     
     if (err) {
-        DEBUG_PRINT("Error importing RSA certificate (code: %i)", err);
+        DEBUG_PRINT("Error importing RSA certificate (code: %i)\n", err);
         return TLS_GENERIC_ERROR;
     }
     int hash_idx = -1;
@@ -1950,7 +1950,7 @@ int __private_tls_ecc_import_key(const unsigned char *private_key, int private_l
 int __private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type, const unsigned char *message, unsigned int message_len, unsigned char *out, unsigned long *outlen) {
     if ((!outlen) || (!context) || (!out) || (!outlen) || (!context->ec_private_key) ||
         (!context->ec_private_key->priv) || (!context->ec_private_key->priv_len) || (!context->ec_private_key->pk) || (!context->ec_private_key->pk_len)) {
-        DEBUG_PRINT("No private ECDSA key set");
+        DEBUG_PRINT("No private ECDSA key set\n");
         return TLS_GENERIC_ERROR;
     }
     
@@ -1979,7 +1979,7 @@ int __private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type,
             curve = &secp521r1;
             break;
         default:
-            DEBUG_PRINT("UNSUPPORTED CURVE");
+            DEBUG_PRINT("UNSUPPORTED CURVE\n");
             return TLS_GENERIC_ERROR;
     }
     
@@ -1995,7 +1995,7 @@ int __private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type,
     // broken ... fix this
     err = __private_tls_ecc_import_key(context->ec_private_key->priv, context->ec_private_key->priv_len, context->ec_private_key->pk, context->ec_private_key->pk_len, &key, dp);
     if (err) {
-        DEBUG_PRINT("Error importing ECC certificate (code: %i)", (int)err);
+        DEBUG_PRINT("Error importing ECC certificate (code: %i)\n", (int)err);
         return TLS_GENERIC_ERROR;
     }
     int hash_idx = -1;
@@ -5583,7 +5583,7 @@ int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, 
     if (!valid_certificate)
         return TLS_UNSUPPORTED_CERTIFICATE;
     if (res != buf_len) {
-        DEBUG_PRINT("Warning: %i bytes read from %i byte buffer", (int)res, (int)buf_len);
+        DEBUG_PRINT("Warning: %i bytes read from %i byte buffer\n", (int)res, (int)buf_len);
     }
     return res;
 }
@@ -5776,7 +5776,7 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
                     curve = &secp521r1;
                     break;
                 default:
-                    DEBUG_PRINT("UNSUPPORTED CURVE");
+                    DEBUG_PRINT("UNSUPPORTED CURVE\n");
                     return TLS_GENERIC_ERROR;
             }
             pk_key = &buf[res];
@@ -8147,28 +8147,28 @@ int tls_unmake_ktls(struct TLSContext *context, int socket) {
     struct tls12_crypto_info_aes_gcm_128 crypto_info;
     socklen_t crypt_info_size = sizeof(crypto_info);
     if (getsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, &crypt_info_size)) {
-        DEBUG_PRINT("ERROR IN getsockopt");
+        DEBUG_PRINT("ERROR IN getsockopt\n");
         return TLS_GENERIC_ERROR;
     }
     memcpy(crypto_info.rec_seq, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
     context->local_sequence_number = ntohll(context->local_sequence_number);
     return 0;
 #endif
-    DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT");
+    DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT\n");
     return TLS_FEATURE_NOT_SUPPORTED;
 }
 
 int tls_make_ktls(struct TLSContext *context, int socket) {
     if ((!context) || (context->critical_error) || (context->connection_status != 0xFF) || (!context->crypto.created)) {
-        DEBUG_PRINT("CANNOT SWITCH TO kTLS");
+        DEBUG_PRINT("CANNOT SWITCH TO kTLS\n");
         return TLS_GENERIC_ERROR;
     }
     if ((!context->exportable) || (!context->exportable_keys)) {
-        DEBUG_PRINT("KEY MUST BE EXPORTABLE TO BE ABLE TO USE kTLS");
+        DEBUG_PRINT("KEY MUST BE EXPORTABLE TO BE ABLE TO USE kTLS\n");
         return TLS_GENERIC_ERROR;
     }
     if ((context->version != TLS_V12) && (context->version != DTLS_V12)) {
-        DEBUG_PRINT("kTLS IS SUPPORTED ONLY FOR TLS 1.2 AND DTLS 1.2");
+        DEBUG_PRINT("kTLS IS SUPPORTED ONLY FOR TLS 1.2 AND DTLS 1.2\n");
         return TLS_FEATURE_NOT_SUPPORTED;
     }
     switch (context->cipher) {
@@ -8178,12 +8178,12 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
             break;
         default:
-            DEBUG_PRINT("CIPHER UNSUPPORTED: kTLS SUPPORTS ONLY AES 128 GCM CIPHERS");
+            DEBUG_PRINT("CIPHER UNSUPPORTED: kTLS SUPPORTS ONLY AES 128 GCM CIPHERS\n");
             return TLS_FEATURE_NOT_SUPPORTED;
     }
 #ifdef WITH_KTLS
     if (context->exportable_size < TLS_CIPHER_AES_GCM_128_KEY_SIZE) {
-        DEBUG_PRINT("INVALID KEY SIZE");
+        DEBUG_PRINT("INVALID KEY SIZE\n");
         return TLS_GENERIC_ERROR;
     }
     struct tls12_crypto_info_aes_gcm_128 crypto_info;
@@ -8199,7 +8199,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     setsockopt(socket, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
     return setsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
 #else
-    DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT");
+    DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT\n");
     return TLS_FEATURE_NOT_SUPPORTED;
 #endif
 }
