@@ -1321,9 +1321,7 @@ void tls_init() {
     register_hash(&md5_desc);
     register_cipher(&aes_desc);
 #ifdef TLS_FORWARD_SECRECY
-#ifdef TLS_ECDSA_SUPPORTED
     init_curves();
-#endif
 #endif
 }
 
