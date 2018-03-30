@@ -7202,9 +7202,11 @@ int __private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert
                 case 0x06:
                     // object identifier
                     if (__is_field(fields, pk_id)) {
+#ifdef TLS_ECDSA_SUPPORTED
                         if ((length == 8) || (length == 5))
                             tls_certificate_set_algorithm(&cert->ec_algorithm, &buffer[pos], length);
                         else
+#endif
                             tls_certificate_set_algorithm(&cert->key_algorithm, &buffer[pos], length);
                     }
                     if (__is_field(fields, algorithm_id))
