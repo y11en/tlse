@@ -7913,9 +7913,12 @@ struct TLSContext *tls_import_context(const unsigned char *buffer, unsigned int 
         memcpy(temp, &buffer[buf_pos], key_lengths);
         buf_pos += key_lengths;
 #ifdef TLS_REEXPORTABLE
+        context->exportable = 1;
         context->exportable_keys = (unsigned char *)TLS_MALLOC(key_lengths);
         memcpy(context->exportable_keys, temp, key_lengths);
         context->exportable_size = key_lengths;
+#else
+        context->exportable = 0;
 #endif
         int is_aead = __private_tls_is_aead(context);
 #ifdef TLS_WITH_CHACHA20_POLY1305
