@@ -4293,9 +4293,14 @@ int __private_tls_prefer_ktls(struct TLSContext *context, unsigned short cipher)
 
     switch (cipher) {
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+                if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
+                    return 1;
+            }
+            break;
         case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
-            return cipher;
+            return 1;
     }
     return 0;
 }
@@ -7908,9 +7913,12 @@ struct TLSContext *tls_import_context(const unsigned char *buffer, unsigned int 
         memcpy(temp, &buffer[buf_pos], key_lengths);
         buf_pos += key_lengths;
 #ifdef TLS_REEXPORTABLE
+        context->exportable = 1;
         context->exportable_keys = (unsigned char *)TLS_MALLOC(key_lengths);
         memcpy(context->exportable_keys, temp, key_lengths);
         context->exportable_size = key_lengths;
+#else
+        context->exportable = 0;
 #endif
         int is_aead = __private_tls_is_aead(context);
 #ifdef TLS_WITH_CHACHA20_POLY1305
