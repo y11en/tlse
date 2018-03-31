@@ -4293,9 +4293,14 @@ int __private_tls_prefer_ktls(struct TLSContext *context, unsigned short cipher)
 
     switch (cipher) {
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+                if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
+                    return 1;
+            }
+            break;
         case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
-            return cipher;
+            return 1;
     }
     return 0;
 }
