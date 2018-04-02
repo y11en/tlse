@@ -27,6 +27,8 @@ tlse.h is optional (is safe to just include tlse.c). Alternatively, you may incl
 
 If thread-safety is needed, you need to call `tls_init()` before letting any other threads in, and not use the same object from multiple threads without a mutex. Other than that, TLSe and libtomcrypt are thread-safe. Also, you may want to define LTC_PTHREAD if you're using libtomcrypt.
 
+TLSe supports KTLS on linux kernel 4.13 or higher. KTLS is a TLS implementation in the linux kernel. It is send-only (you may use send/sendfile to send data, but you may not use recv). Also, the negotiation must be handled by TLSe. If KTLS support is needed, define WITH_KTLS (compile with -DWITH_KTLS). Note that is not clear which header should be included for linux structure, you may need to check these structures and constants: https://github.com/torvalds/linux/blob/master/Documentation/networking/tls.txt.
+
 Usage
 ----------
 
