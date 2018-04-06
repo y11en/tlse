@@ -8186,6 +8186,15 @@ int tls_unmake_ktls(struct TLSContext *context, int socket) {
     }
     memcpy(crypto_info.rec_seq, &context->local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
     context->local_sequence_number = ntohll(context->local_sequence_number);
+#ifdef TLS_RX
+    crypt_info_size = sizeof(crypto_info);
+    if (getsockopt(socket, SOL_TLS, TLS_RX, &crypto_info, &crypt_info_size)) {
+        DEBUG_PRINT("ERROR IN getsockopt\n");
+        return TLS_GENERIC_ERROR;
+    }
+    memcpy(crypto_info.rec_seq, &context->remote_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+    context->remote_sequence_number = ntohll(context->remote_sequence_number);
+#endif
     return 0;
 #endif
     DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT\n");
@@ -8216,7 +8225,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
             return TLS_FEATURE_NOT_SUPPORTED;
     }
 #ifdef WITH_KTLS
-    if (context->exportable_size < TLS_CIPHER_AES_GCM_128_KEY_SIZE) {
+    if (context->exportable_size < TLS_CIPHER_AES_GCM_128_KEY_SIZE * 2) {
         DEBUG_PRINT("INVALID KEY SIZE\n");
         return TLS_GENERIC_ERROR;
     }
@@ -8230,7 +8239,26 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     memcpy(crypto_info.rec_seq, &local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
     memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
     memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+
     setsockopt(socket, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
+
+#ifdef TLS_RX
+    // kernel 4.17 adds TLS_RX support
+    struct tls12_crypto_info_aes_gcm_128 crypto_info_read;
+
+    crypto_info_read.info.version = TLS_1_2_VERSION;
+    crypto_info_read.info.cipher_type = TLS_CIPHER_AES_GCM_128;
+
+    uint64_t remote_sequence_number = htonll(context->remote_sequence_number);
+    memcpy(crypto_info_read.iv, &remote_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+    memcpy(crypto_info_read.rec_seq, &remote_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+    memcpy(crypto_info_read.key, context->exportable_keys + TLS_CIPHER_AES_GCM_128_KEY_SIZE, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+    memcpy(crypto_info_read.salt, context->crypto.ctx_remote_mac.remote_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+
+    int err = setsockopt(socket, SOL_TLS, TLS_RX, &crypto_info_read, sizeof(crypto_info_read));
+    if (err)
+        return err;
+#endif
     return setsockopt(socket, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
 #else
     DEBUG_PRINT("TLSe COMPILED WITHOUT kTLS SUPPORT\n");
