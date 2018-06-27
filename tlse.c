@@ -5629,6 +5629,31 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                         DEBUG_PRINT("TLS 1.3 SUPPORTED\n");
                     }
                 }
+            } else
+            if (extension_type == 0x2A) {
+                // early data
+                DEBUG_DUMP_HEX_LABEL("EXTENSION, EARLY DATA", &buf[res], extension_len);
+            } else
+            if (extension_type == 0x29) {
+                // pre shared key
+                DEBUG_DUMP_HEX_LABEL("EXTENSION, PRE SHARED KEY", &buf[res], extension_len);
+            } else
+            if (extension_type == 0x33) {
+                // key share
+                int key_size = ntohs(*(unsigned short *)&buf[res]);
+                if ((key_size > extension_len - 2) || (key_size < 0) || (__private_tls_parse_random(context, &buf[res + 2], key_size) <= 0)) {
+                    DEBUG_PRINT("BROKEN KEY\n");
+                    return TLS_BROKEN_PACKET;
+                }
+                DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
+            } else
+            if (extension_type == 0x0D) {
+                // signature algorithms
+                DEBUG_DUMP_HEX_LABEL("EXTENSION, SIGNATURE ALGORITHMS", &buf[res], extension_len);
+            } else
+            if (extension_type == 0x2D) {
+                // psk key exchange modes
+                DEBUG_DUMP_HEX_LABEL("EXTENSION, PSK KEY EXCHANGE MODES", &buf[res], extension_len);
             }
 #endif
             res += extension_len;
