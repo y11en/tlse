@@ -16,7 +16,7 @@
 #if !defined(__BIG_ENDIAN__) && ((!defined(__BYTE_ORDER)) || (__BYTE_ORDER == __LITTLE_ENDIAN))
     // not working on big endian machines
     #ifndef NO_TLS_WITH_CHACHA20_POLY1305
-    #define TLS_WITH_CHACHA20_POLY1305
+        #define TLS_WITH_CHACHA20_POLY1305
     #endif
 #endif
 // support forward secrecy (Diffie-Hellman ephemeral)
@@ -50,8 +50,10 @@
 #define TLS_V10                 0x0301
 #define TLS_V11                 0x0302
 #define TLS_V12                 0x0303
+#define TLS_V13                 0x0304
 #define DTLS_V10                0xFEFF
 #define DTLS_V12                0xFEFD
+#define DTLS_V13                0xFEFC
 
 #define TLS_NEED_MORE_DATA       0
 #define TLS_GENERIC_ERROR       -1
@@ -71,6 +73,12 @@
 #define TLS_UNSUPPORTED_CERTIFICATE -15
 #define TLS_NO_RENEGOTIATION    -16
 #define TLS_FEATURE_NOT_SUPPORTED   -17
+
+#define TLS_AES_128_GCM_SHA256                0x1301
+#define TLS_AES_256_GCM_SHA384                0x1302
+#define TLS_CHACHA20_POLY1305_SHA256          0x1303
+#define TLS_AES_128_CCM_SHA256                0x1304
+#define TLS_AES_128_CCM_8_SHA256              0x1305
 
 #define TLS_RSA_WITH_AES_128_CBC_SHA          0x002F
 #define TLS_RSA_WITH_AES_256_CBC_SHA          0x0035
@@ -250,7 +258,7 @@ const char *tls_cipher_name(struct TLSContext *context);
 int tls_is_ecdsa(struct TLSContext *context);
 struct TLSPacket *tls_build_client_key_exchange(struct TLSContext *context);
 struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int method);
-struct TLSPacket *tls_build_hello(struct TLSContext *context);
+struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrade);
 struct TLSPacket *tls_certificate_request(struct TLSContext *context);
 struct TLSPacket *tls_build_verify_request(struct TLSContext *context);
 int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified);
