@@ -1091,6 +1091,7 @@ void init_curves() {
     init_curve(&secp256k1);
     init_curve(&secp384r1);
     init_curve(&secp521r1);
+    init_curve(&x25519);
 }
 #endif
 
@@ -4806,7 +4807,7 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
         if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, dp)) {
             TLS_FREE(context->ecc_dhe);
             context->ecc_dhe = NULL;
-            DEBUG_PRINT("Error generatic ECC key\n");
+            DEBUG_PRINT("Error generating ECC key\n");
             TLS_FREE(packet);
             return NULL;
         }
@@ -5380,14 +5381,19 @@ void __private_dtls_reset_cookie(struct TLSContext *context) {
     context->dtls_cookie_len = 0;
 }
 
+#ifdef WITH_TLS_13
 int __private_tls_parse_key_share(struct TLSContext *context, const unsigned char *buf, int buf_len) {
     int i = 0;
+    struct ECCCurveParameters *curve = 0;
+    const unsigned char *buffer;
+    unsigned short key_size;
+
     while (buf_len >= 4) {
         unsigned short named_group = ntohs(*(unsigned short *)&buf[i]);
         i += 2;
         buf_len -= 2;
 
-        unsigned short key_size = ntohs(*(unsigned short *)&buf[i]);
+        key_size = ntohs(*(unsigned short *)&buf[i]);
         i += 2;
         buf_len -= 2;
 
@@ -5397,19 +5403,28 @@ int __private_tls_parse_key_share(struct TLSContext *context, const unsigned cha
 
         switch (named_group) {
             case 0x0017:
-                // secp256r1;
-                break;
+                curve = &secp256r1;
+                buffer = &buf[i];
+                DEBUG_PRINT("KEY SHARE => secp256r1\n");
+                buf_len = 0;
+                continue;
             case 0x0018:
                 // secp384r1
-                break;
+                curve = &secp384r1;
+                buffer = &buf[i];
+                DEBUG_PRINT("KEY SHARE => secp384r1\n");
+                buf_len = 0;
+                continue;
             case 0x0019:
                 // secp521r1
                 break;
             case 0x001D:
                 // x25519
-                DEBUG_PRINT("KEY SHARE => x25519 (%i)\n", (int)buf[i + 1]);
-                DEBUG_DUMP_HEX(&buf[i], key_size);
-                return 0;
+                curve = &x25519;
+                buffer = &buf[i];
+                DEBUG_PRINT("KEY SHARE => x25519\n");
+                buf_len = 0;
+                continue;
             case 0x001E:
                 // x448
                 break;
@@ -5432,9 +5447,49 @@ int __private_tls_parse_key_share(struct TLSContext *context, const unsigned cha
         i += key_size;
         buf_len -= key_size;
     }
+    if (curve) {
+        tls_init();
+        __private_tls_ecc_dhe_create(context);       
+        ltc_ecc_set_type *dp = (ltc_ecc_set_type *)&context->curve->dp;
+        if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, dp)) {
+            TLS_FREE(context->ecc_dhe);
+            context->ecc_dhe = NULL;
+            DEBUG_PRINT("Error generating ECC DHE key\n");
+            return TLS_GENERIC_ERROR;
+        }
+        unsigned char out[__TLS_MAX_RSA_KEY];
+        unsigned long out_len = __TLS_MAX_RSA_KEY;
+        if (ecc_ansi_x963_export(context->ecc_dhe, out, &out_len)) {
+            DEBUG_PRINT("Error exporting ECC DHE key\n");
+            return TLS_GENERIC_ERROR;
+        }
+    
+        ecc_key client_key;
+        memset(&client_key, 0, sizeof(client_key));
+        if (ecc_ansi_x963_import_ex(buffer, key_size, &client_key, dp)) {
+            DEBUG_PRINT("Error importing ECC DHE key\n");
+            return TLS_GENERIC_ERROR;
+        }
+        unsigned char *out2 = (unsigned char *)TLS_MALLOC(key_size);
+        unsigned long out_size = key_size;
+    
+        int err = ecc_shared_secret(context->ecc_dhe, &client_key, out2, &out_size);
+        ecc_free(&client_key);
+        __private_tls_ecc_dhe_free(context);
+
+        if (err) {
+            DEBUG_PRINT("ECC DHE DECRYPT ERROR %i\n", err);
+            TLS_FREE(out2);
+            return TLS_GENERIC_ERROR;
+        }
+        DEBUG_PRINT("OUT_SIZE: %lu\n", out_size);
+        DEBUG_DUMP_HEX_LABEL("ECC DHE", out2, out_size);
+        return 0;
+    }
     DEBUG_PRINT("NO COMMON KEY SHARE SUPPORTED\n");
     return TLS_NO_COMMON_CIPHER;
 }
+#endif
 
 int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified) {
     *write_packets = 0;
@@ -5720,7 +5775,10 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                     return TLS_BROKEN_PACKET;
                 }
                 DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
-                __private_tls_parse_key_share(context, &buf[res + 2], key_size);
+                if (__private_tls_parse_key_share(context, &buf[res + 2], key_size)) {
+                    DEBUG_PRINT("ERROR IN KEY SHARE\n");
+                    return TLS_BROKEN_PACKET;
+                }
             } else
             if (extension_type == 0x0D) {
                 // signature algorithms
@@ -6125,7 +6183,7 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, dp)) {
             TLS_FREE(context->ecc_dhe);
             context->ecc_dhe = NULL;
-            DEBUG_PRINT("Error generatic ECC key\n");
+            DEBUG_PRINT("Error generating ECC key\n");
             return TLS_GENERIC_ERROR;
         }
         
