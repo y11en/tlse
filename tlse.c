@@ -96,7 +96,7 @@
 
 #ifdef DEBUG
 #define DEBUG_PRINT(...)            fprintf(stderr, __VA_ARGS__)
-#define DEBUG_DUMP_HEX(buf, len)    {int i; for (i = 0; i < len; i++) { DEBUG_PRINT("%02X ", (unsigned int)(buf)[i]); } }
+#define DEBUG_DUMP_HEX(buf, len)    {int __i__; for (__i__ = 0; __i__ < len; __i__++) { DEBUG_PRINT("%02X ", (unsigned int)(buf)[__i__]); } }
 #define DEBUG_INDEX(fields)         print_index(fields)
 #define DEBUG_DUMP(buf, length)     fwrite(buf, 1, length, stderr);
 #define DEBUG_DUMP_HEX_LABEL(title, buf, len)    {fprintf(stderr, "%s (%i): ", title, (int)len); DEBUG_DUMP_HEX(buf, len); fprintf(stderr, "\n");}
@@ -1057,6 +1057,18 @@ static struct ECCCurveParameters secp521r1 = {
     "00C6858E06B70404E9CD9E3ECB662395B4429C648139053FB521F828AF606B4D3DBAA14B5E77EFE75928FE1DC127A2FFA8DE3348B3C1856A429BF97E7E31C2E5BD66", // Gx
     "011839296A789A3BC0045C8A5FB42C7D1BD998F54449579B446817AFBD17273E662C97EE72995EF42640C550B9013FAD0761353C7086A272C24088BE94769FD16650", // Gy
     "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
+};
+
+static struct ECCCurveParameters x25519 = {
+    32,
+    29,
+    "x25519",
+    "7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFED", // P
+    "0000000000000000000000000000000000000000000000000000000000076D06", // A
+    "0000000000000000000000000000000000000000000000000000000000000000", // B
+    "0000000000000000000000000000000000000000000000000000000000000009", // Gx
+    "20AE19A1B8A086B4E01EDD2C7748D14C923D4D7E6D7C61B229E9C5A27ECED3D9", // Gy
+    "1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED"  // order (n)
 };
 
 static struct ECCCurveParameters * const default_curve = &secp256r1;
@@ -5368,6 +5380,62 @@ void __private_dtls_reset_cookie(struct TLSContext *context) {
     context->dtls_cookie_len = 0;
 }
 
+int __private_tls_parse_key_share(struct TLSContext *context, const unsigned char *buf, int buf_len) {
+    int i = 0;
+    while (buf_len >= 4) {
+        unsigned short named_group = ntohs(*(unsigned short *)&buf[i]);
+        i += 2;
+        buf_len -= 2;
+
+        unsigned short key_size = ntohs(*(unsigned short *)&buf[i]);
+        i += 2;
+        buf_len -= 2;
+
+
+        if (key_size > buf_len)
+            return TLS_BROKEN_PACKET;
+
+        switch (named_group) {
+            case 0x0017:
+                // secp256r1;
+                break;
+            case 0x0018:
+                // secp384r1
+                break;
+            case 0x0019:
+                // secp521r1
+                break;
+            case 0x001D:
+                // x25519
+                DEBUG_PRINT("KEY SHARE => x25519 (%i)\n", (int)buf[i + 1]);
+                DEBUG_DUMP_HEX(&buf[i], key_size);
+                return 0;
+            case 0x001E:
+                // x448
+                break;
+            case 0x0100:
+                // ffdhe2048
+                break;
+            case 0x0101:
+                // ffdhe3072
+                break;
+            case 0x0102:
+                // ffdhe4096
+                break;
+            case 0x0103:
+                // ffdhe6144
+                break;
+            case 0x0104:
+                // ffdhe8192
+                break;
+        }
+        i += key_size;
+        buf_len -= key_size;
+    }
+    DEBUG_PRINT("NO COMMON KEY SHARE SUPPORTED\n");
+    return TLS_NO_COMMON_CIPHER;
+}
+
 int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified) {
     *write_packets = 0;
     *dtls_verified = 0;
@@ -5566,6 +5634,12 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                                     context->curve = &secp384r1;
                                     selected = 1;
                                     break;
+#ifdef WITH_TLS_13
+                                case 29:
+                                    context->curve = &x25519;
+                                    selected = 1;
+                                    break;
+#endif
                                 // do not use it anymore
                                 // case 25:
                                 //    context->curve = &secp521r1;
@@ -5641,11 +5715,12 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
             if (extension_type == 0x33) {
                 // key share
                 int key_size = ntohs(*(unsigned short *)&buf[res]);
-                if ((key_size > extension_len - 2) || (key_size < 0) || (__private_tls_parse_random(context, &buf[res + 2], key_size) <= 0)) {
-                    DEBUG_PRINT("BROKEN KEY\n");
+                if ((key_size > extension_len - 2) || (key_size < 0)) {
+                    DEBUG_PRINT("BROKEN KEY SHARE\n");
                     return TLS_BROKEN_PACKET;
                 }
                 DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
+                __private_tls_parse_key_share(context, &buf[res + 2], key_size);
             } else
             if (extension_type == 0x0D) {
                 // signature algorithms
