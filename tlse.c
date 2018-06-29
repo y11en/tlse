@@ -4442,6 +4442,16 @@ int tls_cipher_is_ephemeral(struct TLSContext *context) {
             case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
             case TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
                 return 2;
+#ifdef WITH_TLS_13
+            case TLS_AES_128_GCM_SHA256:
+            case TLS_CHACHA20_POLY1305_SHA256:
+            case TLS_AES_128_CCM_SHA256:
+            case TLS_AES_128_CCM_8_SHA256:
+            case TLS_AES_256_GCM_SHA384:
+                if (context->dhe)
+                    return 1;
+                return 2;
+#endif
         }
     }
     return 0;
@@ -4978,7 +4988,8 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
                     DEBUG_PRINT("Error exporting ECC DHE key\n");
                     tls_destroy_packet(packet);
                     return tls_build_alert(context, 1, internal_error);
-                } 
+                }
+                __private_tls_ecc_dhe_free(context);
                 extension_len += 8 + shared_key_len;
                 shared_key_short = (unsigned short)shared_key_len;
 
