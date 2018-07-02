@@ -2345,6 +2345,24 @@ void __private_tls_prf_helper(int hash_idx, unsigned long dlen, unsigned char *o
     }
 }
 
+#ifdef WITH_TLS_13
+void __private_tls_hkdf_label(const char *label, unsigned char label_len, const char *data, unsigned char data_len, unsigned char *hkdflabel) {
+    unsigned short length = 6 + label_len;
+    length += data_len;
+
+    *(unsigned short *)&hkdflabel[0] = htons(length);
+    memcpy(&hkdflabel[2], "tls13 ", 6);
+    memcpy(&hkdflabel[8], label, label_len);
+    if (data_len)
+        memcpy(&hkdflabel[8 + label_len], data, data_len);
+}
+
+void __private_tls_hkdf_expand(const char *label, unsigned char label_len, const char *data, unsigned char data_len, const unsigned char *secret, const unsigned int secret_len) {
+    unsigned char hkdf_label[512];
+    __private_tls_hkdf_label(label, label_len, data, data_len, hkdf_label);
+}
+#endif
+
 void __private_tls_prf(struct TLSContext *context,
                        unsigned char *output, unsigned int outlen, const unsigned char *secret, const unsigned int secret_len,
                        const unsigned char *label, unsigned int label_len, unsigned char *seed, unsigned int seed_len,
@@ -3200,7 +3218,20 @@ struct TLSPacket *tls_create_packet(struct TLSContext *context, unsigned char ty
     else
         packet->len = 5;
     packet->buf[0] = type;
+#ifdef WITH_TLS_13
+    switch (version) {
+        case TLS_V13:
+            *(unsigned short *)&packet->buf[1] = 0x0303; // no need to reorder (same bytes)
+            break;
+        case DTLS_V13:
+            *(unsigned short *)&packet->buf[1] = htons(DTLS_V13);
+            break;
+        default:
+            *(unsigned short *)&packet->buf[1] = htons(version);
+    }
+#else
     *(unsigned short *)&packet->buf[1] = htons(version);
+#endif
     return packet;
 }
 
@@ -6707,23 +6738,26 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 } else {
                     DEBUG_PRINT("<= SENDING SERVER HELLO\n");
 #ifdef WITH_TLS_13
-                    if (context->connection_status == 3)
+                    if (context->connection_status == 3) {
                         context->connection_status = 2;
+                        __private_tls_write_packet(tls_build_hello(context, 0));
+                        DEBUG_PRINT("<= SENDING CHANGE CIPHER SPEC\n");
+                        __private_tls_write_packet(tls_build_change_cipher_spec(context));
+                        DEBUG_PRINT("<= SENDING CERTIFICATE\n");
+                        __private_tls_write_packet(tls_build_certificate(context));
+                        DEBUG_PRINT("<= SENDING DONE\n");
+                        __private_tls_write_packet(tls_build_done(context));
+                        break;
+                    }
 #endif
                     __private_tls_write_packet(tls_build_hello(context, 0));
                     DEBUG_PRINT("<= SENDING CERTIFICATE\n");
                     __private_tls_write_packet(tls_build_certificate(context));
-#ifdef WITH_TLS_13
-                    if ((context->version != TLS_V13) && (context->version != DTLS_V13)) {
-#endif
                     int ephemeral_cipher = tls_cipher_is_ephemeral(context);
                     if (ephemeral_cipher) {
                         DEBUG_PRINT("<= SENDING EPHEMERAL DH KEY\n");
                         __private_tls_write_packet(tls_build_server_key_exchange(context, ephemeral_cipher == 1 ? KEA_dhe_rsa : KEA_ec_diffie_hellman));
                     }
-#ifdef WITH_TLS_13
-                    }
-#endif
                     if (context->request_client_certificate) {
                         DEBUG_PRINT("<= SENDING CERTIFICATE REQUEST\n");
                         __private_tls_write_packet(tls_certificate_request(context));
