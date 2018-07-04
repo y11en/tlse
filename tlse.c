@@ -2346,7 +2346,7 @@ void __private_tls_prf_helper(int hash_idx, unsigned long dlen, unsigned char *o
 }
 
 #ifdef WITH_TLS_13
-void __private_tls_hkdf_label(const char *label, unsigned char label_len, const char *data, unsigned char data_len, unsigned char *hkdflabel) {
+int __private_tls_hkdf_label(const char *label, unsigned char label_len, const char *data, unsigned char data_len, unsigned char *hkdflabel) {
     unsigned short length = 6 + label_len;
     length += data_len;
 
@@ -2355,11 +2355,47 @@ void __private_tls_hkdf_label(const char *label, unsigned char label_len, const 
     memcpy(&hkdflabel[8], label, label_len);
     if (data_len)
         memcpy(&hkdflabel[8 + label_len], data, data_len);
+    return 8 + label_len + data_len;
 }
 
-void __private_tls_hkdf_expand(const char *label, unsigned char label_len, const char *data, unsigned char data_len, const unsigned char *secret, const unsigned int secret_len) {
+void __private_tls_hkdf_expand(struct TLSContext *context, unsigned char *output, unsigned int outlen, const char *label, unsigned char label_len, const char *data, unsigned char data_len, const unsigned char *secret, const unsigned int secret_len) {
     unsigned char hkdf_label[512];
-    __private_tls_hkdf_label(label, label_len, data, data_len, hkdf_label);
+    int len = __private_tls_hkdf_label(label, label_len, data, data_len, hkdf_label);
+    // sha256_hmac
+    unsigned char digest_out[__TLS_MAX_HASH_LEN];
+    unsigned long dlen = 32;
+    int hash_idx;
+    unsigned int mac_length = __private_tls_mac_length(context);
+    if (mac_length == __TLS_SHA384_MAC_SIZE) {
+        hash_idx = find_hash("sha384");
+        dlen = mac_length;
+    } else
+        hash_idx = find_hash("sha256");
+    unsigned int i;
+    unsigned int idx;
+    hmac_state hmac;
+    unsigned char i2 = 0;
+
+    while (outlen) {
+        hmac_init(&hmac, hash_idx, hkdf_label, len);
+        if (i2)
+            hmac_process(&hmac, digest_out, dlen);
+        i2++;
+        hmac_process(&hmac, &i2, 1);
+        hmac_done(&hmac, digest_out, &dlen);
+            
+        unsigned int copylen = outlen;
+        if (copylen > dlen)
+            copylen = (unsigned int)dlen;
+            
+        for (i = 0; i < copylen; i++) {
+            output[idx++] = digest_out[i];
+            outlen--;
+        }
+            
+        if (!outlen)
+            break;            
+    }
 }
 #endif
 
