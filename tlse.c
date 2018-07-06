@@ -2354,15 +2354,17 @@ int __private_tls_hkdf_label(const char *label, unsigned char label_len, const c
     int prefix_len;
     if (prefix) {
         prefix_len = strlen(prefix);
-        memcpy(&hkdflabel[2], prefix, prefix_len);
+        memcpy(&hkdflabel[3], prefix, prefix_len);
     } else {
-        memcpy(&hkdflabel[2], "tls13 ", 6);
+        memcpy(&hkdflabel[3], "tls13 ", 6);
         prefix_len = 6;
-    } 
-    memcpy(&hkdflabel[2 + prefix_len], label, label_len);
+    }
+    hkdflabel[2] = (unsigned char)prefix_len + label_len;
+    memcpy(&hkdflabel[3 + prefix_len], label, label_len);
+    hkdflabel[3 + prefix_len + label_len] = (unsigned char)data_len;
     if (data_len)
-        memcpy(&hkdflabel[2 + prefix_len + label_len], data, data_len);
-    return 2 + prefix_len + label_len + data_len;
+        memcpy(&hkdflabel[4 + prefix_len + label_len], data, data_len);
+    return 4 + prefix_len + label_len + data_len;
 }
 
 int __private_tls_hkdf_extract(unsigned int mac_length, unsigned char *output, unsigned int outlen, const unsigned char *salt, unsigned int salt_len, const unsigned char *ikm, unsigned char ikm_len) {
@@ -2427,6 +2429,7 @@ void __private_tls_hkdf_expand(unsigned int mac_length, unsigned char *output, u
 void __private_tls_hkdf_expand_label(unsigned int mac_length, unsigned char *output, unsigned int outlen, const unsigned char *secret, unsigned int secret_len, const char *label, unsigned char label_len, const char *data, unsigned char data_len) {
     unsigned char hkdf_label[512];
     int len = __private_tls_hkdf_label(label, label_len, data, data_len, hkdf_label, outlen, NULL);
+    DEBUG_DUMP_HEX_LABEL("INFO ", hkdf_label, len);
     __private_tls_hkdf_expand(mac_length, output, outlen, secret, secret_len, hkdf_label, len);
 }
 #endif
