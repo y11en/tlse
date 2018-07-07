@@ -2429,9 +2429,11 @@ void __private_tls_hkdf_expand(unsigned int mac_length, unsigned char *output, u
 void __private_tls_hkdf_expand_label(unsigned int mac_length, unsigned char *output, unsigned int outlen, const unsigned char *secret, unsigned int secret_len, const char *label, unsigned char label_len, const char *data, unsigned char data_len) {
     unsigned char hkdf_label[512];
     int len = __private_tls_hkdf_label(label, label_len, data, data_len, hkdf_label, outlen, NULL);
-    DEBUG_DUMP_HEX_LABEL("INFO ", hkdf_label, len);
+    DEBUG_DUMP_HEX_LABEL("INFO", hkdf_label, len);
     __private_tls_hkdf_expand(mac_length, output, outlen, secret, secret_len, hkdf_label, len);
 }
+
+
 #endif
 
 void __private_tls_prf(struct TLSContext *context,
@@ -2605,6 +2607,141 @@ unsigned int __private_tls_mac_length(struct TLSContext *context) {
     }
     return 0;
 }
+
+#ifdef WITH_TLS_13
+int __private_tls13_key(struct TLSContext *context, int handshake) {
+    tls_init();
+
+    int key_length = __private_tls_key_length(context);
+    int mac_length = __private_tls_mac_length(context);
+
+    if ((!context->master_key) || (!context->master_key_len))
+        return 0; 
+    
+    if ((!key_length) || (!mac_length)) {
+        DEBUG_PRINT("KEY EXPANSION FAILED, KEY LENGTH: %i, MAC LENGTH: %i\n", key_length, mac_length);
+        return 0;
+    }
+
+    unsigned char *clientkey = NULL;
+    unsigned char *serverkey = NULL;
+    unsigned char *clientiv = NULL;
+    unsigned char *serveriv = NULL;
+    int iv_length = __TLS_AES_IV_LENGTH;
+    int is_aead = __private_tls_is_aead(context);
+
+    unsigned char local_keybuffer[__TLS_V13_MAX_KEY_SIZE];
+    unsigned char local_ivbuffer[__TLS_V13_MAX_IV_SIZE];
+    unsigned char remote_keybuffer[__TLS_V13_MAX_KEY_SIZE];
+    unsigned char remote_ivbuffer[__TLS_V13_MAX_IV_SIZE];
+
+    unsigned char prk[__TLS_MAX_HASH_SIZE];
+    if (handshake) {
+        static unsigned char earlysecret[__TLS_MAX_HASH_SIZE];
+        unsigned char salt[__TLS_MAX_HASH_SIZE];
+        unsigned char hash[__TLS_MAX_HASH_SIZE];
+
+        // extract secret "early"
+        __private_tls_hkdf_extract(mac_length, prk, sizeof(prk), NULL, 0, earlysecret, mac_length);
+        // derive secret for handshake "tls13 derived":
+        int hash_size = __private_tls_get_hash(context, hash);
+        __private_tls_hkdf_expand_label(mac_length, salt, mac_length, prk, mac_length, "derived", 7, hash, hash_size);
+        // extract secret "handshake":
+        __private_tls_hkdf_extract(mac_length, prk, mac_length, salt, mac_length, context->master_key, context->master_key_len);
+    }
+
+    unsigned char secret[__TLS_MAX_MAC_SIZE];
+    if (!is_aead) {
+        DEBUG_PRINT("KEY EXPANSION FAILED, NON AEAD CIPHER\n");
+        return 0;
+    }
+    if (context->is_server) {
+        __private_tls_hkdf_extract(mac_length, secret, mac_length, "s hs traffic", 12, prk, mac_length);
+        serverkey = local_keybuffer;
+        serveriv = local_ivbuffer;
+        clientkey = remote_keybuffer;
+        clientiv = remote_ivbuffer;
+    } else {
+        __private_tls_hkdf_extract(mac_length, secret, mac_length, "c hs traffic", 12, prk, mac_length);
+        serverkey = remote_keybuffer;
+        serveriv = remote_ivbuffer;
+        clientkey = local_keybuffer;
+        clientiv = local_ivbuffer;
+    }
+
+    iv_length = __TLS_AES_GCM_IV_LENGTH;
+    if (is_aead == 2)
+        iv_length = __TLS_CHACHA20_IV_LENGTH;
+
+    __private_tls_hkdf_expand_label(mac_length, local_keybuffer, key_length, secret, mac_length, "key", 3, "", 0);
+    __private_tls_hkdf_expand_label(mac_length, local_ivbuffer, iv_length, secret, mac_length, "iv", 2, "", 0);
+
+    if (context->is_server)
+        __private_tls_hkdf_extract(mac_length, secret, mac_length, "c hs traffic", 12, prk, mac_length);
+    else
+        __private_tls_hkdf_extract(mac_length, secret, mac_length, "s hs traffic", 12, prk, mac_length);
+
+    __private_tls_hkdf_expand_label(mac_length, remote_keybuffer, key_length, secret, mac_length, "key", 3, "", 0);
+    __private_tls_hkdf_expand_label(mac_length, remote_ivbuffer, iv_length, secret, mac_length, "iv", 2, "", 0);
+    DEBUG_DUMP_HEX_LABEL("CLIENT KEY", clientkey, key_length)
+    DEBUG_DUMP_HEX_LABEL("CLIENT IV", clientiv, iv_length)
+    DEBUG_DUMP_HEX_LABEL("CLIENT MAC KEY", context->is_server ? context->crypto.ctx_remote_mac.remote_mac : context->crypto.ctx_local_mac.local_mac, mac_length)
+    DEBUG_DUMP_HEX_LABEL("SERVER KEY", serverkey, key_length)
+    DEBUG_DUMP_HEX_LABEL("SERVER IV", serveriv, iv_length)
+    DEBUG_DUMP_HEX_LABEL("SERVER MAC KEY", context->is_server ? context->crypto.ctx_local_mac.local_mac : context->crypto.ctx_remote_mac.remote_mac, mac_length)
+    
+    if (context->is_server) {
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        if (is_aead == 2) {
+            memcpy(context->crypto.ctx_remote_mac.remote_nonce, clientiv, iv_length);
+            memcpy(context->crypto.ctx_local_mac.local_nonce, serveriv, iv_length);
+        } else
+#endif
+        if (is_aead) {
+            memcpy(context->crypto.ctx_remote_mac.remote_aead_iv, clientiv, iv_length);
+            memcpy(context->crypto.ctx_local_mac.local_aead_iv, serveriv, iv_length);
+        }
+        if (__private_tls_crypto_create(context, key_length, iv_length, serverkey, serveriv, clientkey, clientiv))
+            return 0;
+    } else {
+#ifdef TLS_WITH_CHACHA20_POLY1305
+        if (is_aead == 2) {
+            memcpy(context->crypto.ctx_local_mac.local_nonce, clientiv, iv_length);
+            memcpy(context->crypto.ctx_remote_mac.remote_nonce, serveriv, iv_length);
+        } else
+#endif
+        if (is_aead) {
+            memcpy(context->crypto.ctx_local_mac.local_aead_iv, clientiv, iv_length);
+            memcpy(context->crypto.ctx_remote_mac.remote_aead_iv, serveriv, iv_length);
+        }
+        if (__private_tls_crypto_create(context, key_length, iv_length, clientkey, clientiv, serverkey, serveriv))
+            return 0;
+    }
+    
+    if (context->exportable) {
+        TLS_FREE(context->exportable_keys);
+        context->exportable_keys = (unsigned char *)TLS_MALLOC(key_length * 2);
+        if (context->exportable_keys) {
+            if (context->is_server) {
+                memcpy(context->exportable_keys, serverkey, key_length);
+                memcpy(context->exportable_keys + key_length, clientkey, key_length);
+            } else {
+                memcpy(context->exportable_keys, clientkey, key_length);
+                memcpy(context->exportable_keys + key_length, serverkey, key_length);
+            }
+            context->exportable_size = key_length * 2;
+        }
+    }
+    
+    // extract client_mac_key(mac_key_length)
+    // extract server_mac_key(mac_key_length)
+    // extract client_key(enc_key_length)
+    // extract server_key(enc_key_length)
+    // extract client_iv(fixed_iv_lengh)
+    // extract server_iv(fixed_iv_length)
+    return 1;
+}
+#endif
 
 int __private_tls_expand_key(struct TLSContext *context) {
     unsigned char key[__TLS_MAX_KEY_EXPANSION_SIZE];
@@ -3726,7 +3863,7 @@ void __private_tls_create_hash(struct TLSContext *context) {
         return;
     
     TLSHash *hash = __private_tls_ensure_hash(context);
-    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12) || (context->version == TLS_V13) || (context->version == DTLS_V13)) {
         int hash_size = __private_tls_mac_length(context);
         if (hash->created) {
             unsigned char temp[__TLS_MAX_SHA_SIZE];
@@ -3759,7 +3896,7 @@ int __private_tls_update_hash(struct TLSContext *context, const unsigned char *i
     if (!context)
         return 0;
     TLSHash *hash = __private_tls_ensure_hash(context);
-    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12) || (context->version == TLS_V13) || (context->version == DTLS_V13)) {
         if (!hash->created) {
             __private_tls_create_hash(context);
 #ifdef TLS_LEGACY_SUPPORT
@@ -3827,7 +3964,7 @@ int __private_tls_done_hash(struct TLSContext *context, unsigned char *hout) {
         return 0;
     
     int hash_size = 0;
-    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12) || (context->version == TLS_V13) || (context->version == DTLS_V13)) {
         unsigned char temp[__TLS_MAX_SHA_SIZE];
         if (!hout)
             hout = temp;
@@ -3869,7 +4006,7 @@ int __private_tls_get_hash(struct TLSContext *context, unsigned char *hout) {
         return 0;
     
     int hash_size = 0;
-    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12) || (context->version == TLS_V13) || (context->version == DTLS_V13)) {
         hash_size = __private_tls_mac_length(context);
         hash_state prec;
         memcpy(&prec, &hash->hash, sizeof(hash_state));
@@ -6854,12 +6991,13 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                     if (context->connection_status == 3) {
                         context->connection_status = 2;
                         __private_tls_write_packet(tls_build_hello(context, 0));
+                        __private_tls13_key(context, 1);
                         context->cipher_spec_set = 1;
                         context->local_sequence_number = 0;
                         DEBUG_PRINT("<= SENDING CERTIFICATE\n");
                         __private_tls_write_packet(tls_build_certificate(context));
-                        DEBUG_PRINT("<= SENDING DONE\n");
-                        __private_tls_write_packet(tls_build_done(context));
+                        // DEBUG_PRINT("<= SENDING DONE\n");
+                        // __private_tls_write_packet(tls_build_done(context));
                         break;
                     }
 #endif
