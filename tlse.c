@@ -8123,6 +8123,7 @@ int tls_clear_certificates(struct TLSContext *context) {
     return 0;
 }
 
+
 struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
     int i;
     unsigned int all_certificate_size = 0;
@@ -8164,6 +8165,13 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
     }
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0B);
+#ifdef WITH_TLS_13
+    // context
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+        tls_packet_uint24(packet, all_certificate_size + 7);
+        tls_packet_uint8(packet, 0);
+    }
+#endif
     if (all_certificate_size) {
         tls_packet_uint24(packet, all_certificate_size + 3);
 
@@ -8192,6 +8200,11 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
         if (context->dtls)
             __private_dtls_handshake_data(context, packet, all_certificate_size);
     }
+#ifdef WITH_TLS_13
+    // extension
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13))
+        tls_packet_uint16(packet, 0);
+#endif
     tls_packet_update(packet);
     if (context->dtls)
         context->dtls_seq++;
