@@ -8136,27 +8136,31 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
         certificates_count = context->client_certificates_count;
         certificates = context->client_certificates;
     }
-    
+    int delta = 3;
+#ifdef WITH_TLS_13
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13))
+        delta = 5;
+#endif
 #ifdef TLS_ECDSA_SUPPORTED
     int is_ecdsa = tls_is_ecdsa(context);
     if (is_ecdsa) {
         for (i = 0; i < certificates_count; i++) {
             struct TLSCertificate *cert = certificates[i];
             if ((cert) && (cert->der_len) && (cert->ec_algorithm))
-                all_certificate_size += cert->der_len + 3;
+                all_certificate_size += cert->der_len + delta;
         }
     } else {
         for (i = 0; i < certificates_count; i++) {
             struct TLSCertificate *cert = certificates[i];
             if ((cert) && (cert->der_len) && (!cert->ec_algorithm))
-                all_certificate_size += cert->der_len + 3;
+                all_certificate_size += cert->der_len + delta;
         }
     }
 #else
     for (i = 0; i < certificates_count; i++) {
         struct TLSCertificate *cert = certificates[i];
         if ((cert) && (cert->der_len))
-            all_certificate_size += cert->der_len + 3;
+            all_certificate_size += cert->der_len + delta;
     }
 #endif
     if (!all_certificate_size) {
@@ -8165,15 +8169,15 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
     }
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0B);
-#ifdef WITH_TLS_13
-    // context
-    if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
-        tls_packet_uint24(packet, all_certificate_size + 7);
-        tls_packet_uint8(packet, 0);
-    }
-#endif
     if (all_certificate_size) {
-        tls_packet_uint24(packet, all_certificate_size + 3);
+#ifdef WITH_TLS_13
+        // context
+        if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+            tls_packet_uint24(packet, all_certificate_size + 4);
+            tls_packet_uint8(packet, 0);
+        } else
+#endif
+            tls_packet_uint24(packet, all_certificate_size + 3);
 
         if (context->dtls)
             __private_dtls_handshake_data(context, packet, all_certificate_size + 3);
@@ -8193,18 +8197,23 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
                 // 2 times -> one certificate
                 tls_packet_uint24(packet, cert->der_len);
                 tls_packet_append(packet, cert->der_bytes, cert->der_len);
+#ifdef WITH_TLS_13
+                // extension
+                if ((context->version == TLS_V13) || (context->version == DTLS_V13))
+                    tls_packet_uint16(packet, 0);
+#endif
             }
         }
     } else {
         tls_packet_uint24(packet, all_certificate_size);
+#ifdef WITH_TLS_13
+        if ((context->version == TLS_V13) || (context->version == DTLS_V13))
+            tls_packet_uint8(packet, 0);
+#endif
+
         if (context->dtls)
             __private_dtls_handshake_data(context, packet, all_certificate_size);
     }
-#ifdef WITH_TLS_13
-    // extension
-    if ((context->version == TLS_V13) || (context->version == DTLS_V13))
-        tls_packet_uint16(packet, 0);
-#endif
     tls_packet_update(packet);
     if (context->dtls)
         context->dtls_seq++;
