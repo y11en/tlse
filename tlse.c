@@ -2742,7 +2742,7 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
         if (__private_tls_crypto_create(context, key_length, iv_length, clientkey, clientiv, serverkey, serveriv))
             return 0;
     }
-    
+    context->crypto.created = 1 + is_aead;
     if (context->exportable) {
         TLS_FREE(context->exportable_keys);
         context->exportable_keys = (unsigned char *)TLS_MALLOC(key_length * 2);
@@ -3554,7 +3554,15 @@ void __private_tls_crypto_done(struct TLSContext *context) {
 }
 
 void tls_packet_update(struct TLSPacket *packet) {
-    if ((packet) && (!packet->broken)) {
+    if ((packet) && (!packet->broken)) {                   
+#ifdef WITH_TLS_13
+        if (((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) && (packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
+            // type
+            tls_packet_uint8(packet, packet->buf[0]);
+            // no padding
+            tls_packet_uint8(packet, 0);
+        }
+#endif
         unsigned int header_size = 5;
         if ((packet->context) && (packet->context->dtls)) {
             header_size = 13;
@@ -3582,7 +3590,6 @@ void tls_packet_update(struct TLSPacket *packet) {
                     if ((handshake_type != 0x00) && (handshake_type != 0x03))
                         __private_tls_update_hash(packet->context, packet->buf + header_size, packet->len - header_size);
                 }
-                
                 if ((packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
                     int block_size = __TLS_AES_BLOCK_SIZE;
                     int mac_size = 0;
@@ -3610,15 +3617,13 @@ void tls_packet_update(struct TLSPacket *packet) {
                         mac_size = __TLS_GCM_TAG_LEN;
                         length = packet->len - header_size + 8 + mac_size;
                     }
-                    
-                    
                     if (packet->context->crypto.created == 1) {
                         unsigned char *buf = (unsigned char *)TLS_MALLOC(length);
                         if (buf) {
                             unsigned char *ct = (unsigned char *)TLS_MALLOC(length + header_size);
                             if (ct) {
                                 unsigned int buf_pos = 0;
-                                memcpy(ct, packet->buf, header_size - 2);
+                                 memcpy(ct, packet->buf, header_size - 2);
                                 *(unsigned short *)&ct[header_size - 2] = htons(length);
 #ifdef TLS_LEGACY_SUPPORT
                                 if (packet->context->version != TLS_V10)
@@ -3664,7 +3669,8 @@ void tls_packet_update(struct TLSPacket *packet) {
 #else
                     if (packet->context->crypto.created == 2) {
 #endif
-                        int ct_size = length + header_size + 12 + __TLS_MAX_TAG_LEN;
+                        // + 1 = type
+                        int ct_size = length + header_size + 12 + __TLS_MAX_TAG_LEN + 1;
                         unsigned char *ct = (unsigned char *)TLS_MALLOC(ct_size);
                         if (ct) {
                             memset(ct, 0, ct_size);
@@ -3725,8 +3731,16 @@ void tls_packet_update(struct TLSPacket *packet) {
 #ifdef TLS_WITH_CHACHA20_POLY1305
                             }
 #endif
-                            
-                            memcpy(ct, packet->buf, header_size - 2);
+#ifdef WITH_TLS_13
+                            if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) {
+                                ct[0] = TLS_APPLICATION_DATA;
+                                *(unsigned short *)&ct[1] = htons(packet->context->version == TLS_V13 ? TLS_V12 : DTLS_V12);
+                                // is dtls ?
+                                if (header_size != 5)
+                                    memcpy(ct, packet->buf + 3, header_size - 2);
+                            } else
+#endif
+                                memcpy(ct, packet->buf, header_size - 2);
                             *(unsigned short *)&ct[header_size - 2] = htons(ct_pos - header_size);
                             TLS_FREE(packet->buf);
                             packet->buf = ct;
