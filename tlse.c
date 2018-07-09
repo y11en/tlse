@@ -137,6 +137,7 @@
 #define __TLS_AES_IV_LENGTH         16
 #define __TLS_AES_BLOCK_SIZE        16
 #define __TLS_AES_GCM_IV_LENGTH     4
+#define __TLS_13_AES_GCM_IV_LENGTH  12
 #define __TLS_GCM_TAG_LEN           16
 #define __TLS_MAX_TAG_LEN           16
 #define __TLS_MIN_FINISHED_OPAQUE_LEN 12
@@ -2637,15 +2638,14 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     unsigned char remote_ivbuffer[__TLS_V13_MAX_IV_SIZE];
 
     unsigned char prk[__TLS_MAX_HASH_SIZE];
+    unsigned char hash[__TLS_MAX_HASH_SIZE];
     if (handshake) {
         static unsigned char earlysecret[__TLS_MAX_HASH_SIZE];
         unsigned char salt[__TLS_MAX_HASH_SIZE];
-        unsigned char hash[__TLS_MAX_HASH_SIZE];
 
         // extract secret "early"
         __private_tls_hkdf_extract(mac_length, prk, sizeof(prk), NULL, 0, earlysecret, mac_length);
         // derive secret for handshake "tls13 derived":
-        // int hash_size = __private_tls_get_hash(context, hash);
         hash_state md;
         if (mac_length == __TLS_SHA384_MAC_SIZE) {
             sha384_init(&md);
@@ -2669,21 +2669,26 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
         DEBUG_PRINT("KEY EXPANSION FAILED, NON AEAD CIPHER\n");
         return 0;
     }
+
+    int hash_size = __private_tls_get_hash(context, hash);
+    DEBUG_DUMP_HEX_LABEL("messages hash", hash, hash_size);
+
     if (context->is_server) {
-        __private_tls_hkdf_extract(mac_length, secret, mac_length, "s hs traffic", 12, prk, mac_length);
+        __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, "s hs traffic", 12, hash, hash_size);
+        DEBUG_DUMP_HEX_LABEL("s hs traffic", secret, mac_length);
         serverkey = local_keybuffer;
         serveriv = local_ivbuffer;
         clientkey = remote_keybuffer;
         clientiv = remote_ivbuffer;
     } else {
-        __private_tls_hkdf_extract(mac_length, secret, mac_length, "c hs traffic", 12, prk, mac_length);
+        __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, "c hs traffic", 12, hash, hash_size);
         serverkey = remote_keybuffer;
         serveriv = remote_ivbuffer;
         clientkey = local_keybuffer;
         clientiv = local_ivbuffer;
     }
 
-    iv_length = __TLS_AES_GCM_IV_LENGTH;
+    iv_length = __TLS_13_AES_GCM_IV_LENGTH;
     if (is_aead == 2)
         iv_length = __TLS_CHACHA20_IV_LENGTH;
 
@@ -2699,10 +2704,8 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     __private_tls_hkdf_expand_label(mac_length, remote_ivbuffer, iv_length, secret, mac_length, "iv", 2, "", 0);
     DEBUG_DUMP_HEX_LABEL("CLIENT KEY", clientkey, key_length)
     DEBUG_DUMP_HEX_LABEL("CLIENT IV", clientiv, iv_length)
-    DEBUG_DUMP_HEX_LABEL("CLIENT MAC KEY", context->is_server ? context->crypto.ctx_remote_mac.remote_mac : context->crypto.ctx_local_mac.local_mac, mac_length)
     DEBUG_DUMP_HEX_LABEL("SERVER KEY", serverkey, key_length)
     DEBUG_DUMP_HEX_LABEL("SERVER IV", serveriv, iv_length)
-    DEBUG_DUMP_HEX_LABEL("SERVER MAC KEY", context->is_server ? context->crypto.ctx_local_mac.local_mac : context->crypto.ctx_remote_mac.remote_mac, mac_length)
     
     if (context->is_server) {
 #ifdef TLS_WITH_CHACHA20_POLY1305
