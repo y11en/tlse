@@ -3681,7 +3681,7 @@ void tls_packet_update(struct TLSPacket *packet) {
                             // length (2 bytes)
                             unsigned char aad[13];
                             int aad_size = sizeof(aad);
-                            unsigned char *aad_ptr = aad;
+                            unsigned char *sequence = aad;
 #ifdef WITH_TLS_13
                             if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) {
                                 aad[0] = TLS_APPLICATION_DATA;
@@ -3692,11 +3692,11 @@ void tls_packet_update(struct TLSPacket *packet) {
                                 else
                                     *((unsigned short *)&aad[3]) = htons(packet->len + __TLS_GCM_TAG_LEN - header_size);
                                 aad_size = 5;
-                                aad_ptr = aad + 5;
+                                sequence = aad + 5;
                                 if (packet->context->dtls)
-                                    *((uint64_t *)aad_ptr) = *(uint64_t *)&packet->buf[3];
+                                    *((uint64_t *)sequence) = *(uint64_t *)&packet->buf[3];
                                 else
-                                    *((uint64_t *)aad_ptr) = htonll(packet->context->local_sequence_number);
+                                    *((uint64_t *)sequence) = htonll(packet->context->local_sequence_number);
                             } else {
 #endif
                                 if (packet->context->dtls)
@@ -3715,30 +3715,31 @@ void tls_packet_update(struct TLSPacket *packet) {
                             if (packet->context->crypto.created == 3) {
                                 unsigned int counter = 1;
                                 unsigned char poly1305_key[POLY1305_KEYLEN];
-                                chacha_ivupdate(&packet->context->crypto.ctx_local.chacha_local, packet->context->crypto.ctx_local_mac.local_aead_iv, aad_ptr, (u8 *)&counter);
+                                chacha_ivupdate(&packet->context->crypto.ctx_local.chacha_local, packet->context->crypto.ctx_local_mac.local_aead_iv, sequence, (u8 *)&counter);
                                 chacha20_poly1305_key(&packet->context->crypto.ctx_local.chacha_local, poly1305_key);
                                 ct_pos += chacha20_poly1305_aead(&packet->context->crypto.ctx_local.chacha_local, packet->buf + header_size, pt_length, aad, aad_size, poly1305_key, ct + ct_pos);
                             } else {
 #endif
-                                unsigned char iv[12];
+                                unsigned char iv[__TLS_13_AES_GCM_IV_LENGTH];
 #ifdef WITH_TLS_13
-                                if ((packet->context->version != TLS_V13) && (packet->context->version != DTLS_V13)) {
+                                if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) {
+                                    memcpy(iv, packet->context->crypto.ctx_local_mac.local_aead_iv, __TLS_13_AES_GCM_IV_LENGTH);
+                                    int i;
+                                    int offset = __TLS_13_AES_GCM_IV_LENGTH - 8;
+                                    for (i = 0; i < 8; i++)
+                                        iv[offset + i] = packet->context->crypto.ctx_local_mac.local_aead_iv[offset + i] ^ sequence[i];
+                                } else {
 #endif
-                                memcpy(iv, packet->context->crypto.ctx_local_mac.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
-                                tls_random(iv + __TLS_AES_GCM_IV_LENGTH, 8);
-                                memcpy(ct + ct_pos, iv + __TLS_AES_GCM_IV_LENGTH, 8);
-                                ct_pos += 8;
+                                    memcpy(iv, packet->context->crypto.ctx_local_mac.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+                                    tls_random(iv + __TLS_AES_GCM_IV_LENGTH, 8);
+                                    memcpy(ct + ct_pos, iv + __TLS_AES_GCM_IV_LENGTH, 8);
+                                    ct_pos += 8;
 #ifdef WITH_TLS_13
                                 }
 #endif
 
                                 gcm_reset(&packet->context->crypto.ctx_local.aes_gcm_local);
-#ifdef WITH_TLS_13
-                                if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13))
-                                    gcm_add_iv(&packet->context->crypto.ctx_local.aes_gcm_local, packet->context->crypto.ctx_local_mac.local_iv, __TLS_13_AES_GCM_IV_LENGTH);
-                                else
-#endif
-                                    gcm_add_iv(&packet->context->crypto.ctx_local.aes_gcm_local, iv, 12);
+                                gcm_add_iv(&packet->context->crypto.ctx_local.aes_gcm_local, iv, 12);
                                 gcm_add_aad(&packet->context->crypto.ctx_local.aes_gcm_local, aad, aad_size);                                
                                 gcm_process(&packet->context->crypto.ctx_local.aes_gcm_local, packet->buf + header_size, pt_length, ct + ct_pos, GCM_ENCRYPT);
                                 ct_pos += pt_length;
@@ -8201,6 +8202,7 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
 struct TLSPacket *tls_build_encrypted_extensions(struct TLSContext *context) {
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 3);
     tls_packet_uint8(packet, 0x08);
+    tls_packet_uint24(packet, 2);
     tls_packet_uint16(packet, 0);
     tls_packet_update(packet);
     return packet;
