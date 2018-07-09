@@ -3584,7 +3584,11 @@ void tls_packet_update(struct TLSPacket *packet) {
         } else
             *(unsigned short *)&packet->buf[3] = htons(packet->len - header_size);
         if (packet->context) {
+#ifdef WITH_TLS_13
+            if ((packet->buf[0] != TLS_CHANGE_CIPHER) || ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13))) {
+#else
             if (packet->buf[0] != TLS_CHANGE_CIPHER)  {
+#endif
                 if ((packet->buf[0] == TLS_HANDSHAKE) && (packet->len > header_size)) {
                     unsigned char handshake_type = packet->buf[header_size];
                     if ((handshake_type != 0x00) && (handshake_type != 0x03))
@@ -7015,8 +7019,9 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                         __private_tls_write_packet(tls_build_encrypted_extensions(context));
                         DEBUG_PRINT("<= SENDING CERTIFICATE\n");
                         __private_tls_write_packet(tls_build_certificate(context));
-                        // DEBUG_PRINT("<= SENDING DONE\n");
-                        // __private_tls_write_packet(tls_build_done(context));
+                        __private_tls_write_packet(tls_build_change_cipher_spec(context));
+                        DEBUG_PRINT("<= SENDING FINISHED\n");
+                        __private_tls_write_packet(tls_build_finished(context));
                         break;
                     }
 #endif
