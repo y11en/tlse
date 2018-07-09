@@ -3680,15 +3680,30 @@ void tls_packet_update(struct TLSPacket *packet) {
                             // version (2 bytes)
                             // length (2 bytes)
                             unsigned char aad[13];
-                            if (packet->context->dtls)
-                                *((uint64_t *)aad) = *(uint64_t *)&packet->buf[3];
-                            else
-                                *((uint64_t *)aad) = htonll(packet->context->local_sequence_number);
-                            aad[8] = packet->buf[0];
-                            aad[9] = packet->buf[1];
-                            aad[10] = packet->buf[2];
-                            *((unsigned short *)&aad[11]) = htons(packet->len - header_size);
-
+                            int aad_size = sizeof(aad);
+#ifdef WITH_TLS_13
+                            if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) {
+                                aad[0] = TLS_APPLICATION_DATA;
+                                aad[1] = packet->buf[1];
+                                aad[2] = packet->buf[2];
+                                if (packet->context->crypto.created == 3)
+                                    *((unsigned short *)&aad[3]) = htons(packet->len + POLY1305_TAGLEN - header_size);
+                                else
+                                    *((unsigned short *)&aad[3]) = htons(packet->len + __TLS_GCM_TAG_LEN - header_size);
+                                aad_size = 5;
+                            } else {
+#endif
+                                if (packet->context->dtls)
+                                    *((uint64_t *)aad) = *(uint64_t *)&packet->buf[3];
+                                else
+                                    *((uint64_t *)aad) = htonll(packet->context->local_sequence_number);
+                                aad[8] = packet->buf[0];
+                                aad[9] = packet->buf[1];
+                                aad[10] = packet->buf[2];
+                                *((unsigned short *)&aad[11]) = htons(packet->len - header_size);
+#ifdef WITH_TLS_13
+                            }
+#endif
                             int ct_pos = header_size;
 #ifdef TLS_WITH_CHACHA20_POLY1305
                             if (packet->context->crypto.created == 3) {
@@ -3701,9 +3716,7 @@ void tls_packet_update(struct TLSPacket *packet) {
 #endif
                                 unsigned char iv[12];
 #ifdef WITH_TLS_13
-                                if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) {
-                                    // to do
-                                } else {
+                                if ((packet->context->version != TLS_V13) && (packet->context->version != DTLS_V13)) {
 #endif
                                 memcpy(iv, packet->context->crypto.ctx_local_mac.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
                                 tls_random(iv + __TLS_AES_GCM_IV_LENGTH, 8);
@@ -3720,8 +3733,7 @@ void tls_packet_update(struct TLSPacket *packet) {
                                 else
 #endif
                                     gcm_add_iv(&packet->context->crypto.ctx_local.aes_gcm_local, iv, 12);
-                                gcm_add_aad(&packet->context->crypto.ctx_local.aes_gcm_local, aad, sizeof(aad));
-                                
+                                gcm_add_aad(&packet->context->crypto.ctx_local.aes_gcm_local, aad, aad_size);                                
                                 gcm_process(&packet->context->crypto.ctx_local.aes_gcm_local, packet->buf + header_size, pt_length, ct + ct_pos, GCM_ENCRYPT);
                                 ct_pos += pt_length;
                                 
