@@ -916,6 +916,9 @@ typedef struct {
     union {
         unsigned char local_mac[__TLS_MAX_MAC_SIZE];
         unsigned char local_aead_iv[__TLS_AES_GCM_IV_LENGTH];
+#ifdef WITH_TLS_13
+        unsigned char local_iv[__TLS_13_AES_GCM_IV_LENGTH];
+#endif
 #ifdef TLS_WITH_CHACHA20_POLY1305
         unsigned char local_nonce[__TLS_CHACHA20_IV_LENGTH];
 #endif
@@ -923,6 +926,9 @@ typedef struct {
     union {
         unsigned char remote_aead_iv[__TLS_AES_GCM_IV_LENGTH];
         unsigned char remote_mac[__TLS_MAX_MAC_SIZE];
+#ifdef WITH_TLS_13
+        unsigned char remote_iv[__TLS_13_AES_GCM_IV_LENGTH];
+#endif
 #ifdef TLS_WITH_CHACHA20_POLY1305
         unsigned char remote_nonce[__TLS_CHACHA20_IV_LENGTH];
 #endif
@@ -2629,7 +2635,6 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     unsigned char *serverkey = NULL;
     unsigned char *clientiv = NULL;
     unsigned char *serveriv = NULL;
-    int iv_length = __TLS_AES_IV_LENGTH;
     int is_aead = __private_tls_is_aead(context);
 
     unsigned char local_keybuffer[__TLS_V13_MAX_KEY_SIZE];
@@ -2688,7 +2693,7 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
         clientiv = local_ivbuffer;
     }
 
-    iv_length = __TLS_13_AES_GCM_IV_LENGTH;
+    int iv_length = __TLS_13_AES_GCM_IV_LENGTH;
     if (is_aead == 2)
         iv_length = __TLS_CHACHA20_IV_LENGTH;
 
@@ -2715,8 +2720,8 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
         } else
 #endif
         if (is_aead) {
-            memcpy(context->crypto.ctx_remote_mac.remote_aead_iv, clientiv, iv_length);
-            memcpy(context->crypto.ctx_local_mac.local_aead_iv, serveriv, iv_length);
+            memcpy(context->crypto.ctx_remote_mac.remote_iv, clientiv, iv_length);
+            memcpy(context->crypto.ctx_local_mac.local_iv, serveriv, iv_length);
         }
         if (__private_tls_crypto_create(context, key_length, iv_length, serverkey, serveriv, clientkey, clientiv))
             return 0;
@@ -2728,8 +2733,8 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
         } else
 #endif
         if (is_aead) {
-            memcpy(context->crypto.ctx_local_mac.local_aead_iv, clientiv, iv_length);
-            memcpy(context->crypto.ctx_remote_mac.remote_aead_iv, serveriv, iv_length);
+            memcpy(context->crypto.ctx_local_mac.local_iv, clientiv, iv_length);
+            memcpy(context->crypto.ctx_remote_mac.remote_iv, serveriv, iv_length);
         }
         if (__private_tls_crypto_create(context, key_length, iv_length, clientkey, clientiv, serverkey, serveriv))
             return 0;
@@ -2800,21 +2805,7 @@ int __private_tls_expand_key(struct TLSContext *context) {
         iv_length = __TLS_CHACHA20_IV_LENGTH;
     } else
 #endif
-    if (is_aead)
         iv_length = __TLS_AES_GCM_IV_LENGTH;
-    else {
-        if (context->is_server) {
-            memcpy(context->crypto.ctx_remote_mac.remote_mac, &key[pos], mac_length);
-            pos += mac_length;
-            memcpy(context->crypto.ctx_local_mac.local_mac, &key[pos], mac_length);
-            pos += mac_length;
-        } else {
-            memcpy(context->crypto.ctx_local_mac.local_mac, &key[pos], mac_length);
-            pos += mac_length;
-            memcpy(context->crypto.ctx_remote_mac.remote_mac, &key[pos], mac_length);
-            pos += mac_length;
-        }
-    }
     
     clientkey = &key[pos];
     pos += key_length;
@@ -3700,13 +3691,26 @@ void tls_packet_update(struct TLSPacket *packet) {
                             } else {
 #endif
                                 unsigned char iv[12];
+#ifdef WITH_TLS_13
+                                if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) {
+                                    // to do
+                                } else {
+#endif
                                 memcpy(iv, packet->context->crypto.ctx_local_mac.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
                                 tls_random(iv + __TLS_AES_GCM_IV_LENGTH, 8);
                                 memcpy(ct + ct_pos, iv + __TLS_AES_GCM_IV_LENGTH, 8);
                                 ct_pos += 8;
+#ifdef WITH_TLS_13
+                                }
+#endif
 
                                 gcm_reset(&packet->context->crypto.ctx_local.aes_gcm_local);
-                                gcm_add_iv(&packet->context->crypto.ctx_local.aes_gcm_local, iv, 12);
+#ifdef WITH_TLS_13
+                                if ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13))
+                                    gcm_add_iv(&packet->context->crypto.ctx_local.aes_gcm_local, packet->context->crypto.ctx_local_mac.local_iv, __TLS_13_AES_GCM_IV_LENGTH);
+                                else
+#endif
+                                    gcm_add_iv(&packet->context->crypto.ctx_local.aes_gcm_local, iv, 12);
                                 gcm_add_aad(&packet->context->crypto.ctx_local.aes_gcm_local, aad, sizeof(aad));
                                 
                                 gcm_process(&packet->context->crypto.ctx_local.aes_gcm_local, packet->buf + header_size, pt_length, ct + ct_pos, GCM_ENCRYPT);
@@ -7113,11 +7117,19 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
             else
                 *((uint64_t *)aad) = htonll(context->remote_sequence_number);
             unsigned char iv[12];
-            memcpy(iv, context->crypto.ctx_remote_mac.remote_aead_iv, 4);
-            memcpy(iv + 4, buf + header_size, 8);
+            int res0;
             gcm_reset(&context->crypto.ctx_remote.aes_gcm_remote);
-            int res0 = gcm_add_iv(&context->crypto.ctx_remote.aes_gcm_remote, iv, 12);
-            
+#ifdef WITH_TLS_13
+            if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+                res0 = gcm_add_iv(&context->crypto.ctx_remote.aes_gcm_remote, context->crypto.ctx_remote_mac.remote_iv, __TLS_13_AES_GCM_IV_LENGTH);
+            } else {
+#endif
+                memcpy(iv, context->crypto.ctx_remote_mac.remote_aead_iv, 4);
+                memcpy(iv + 4, buf + header_size, 8);
+                res0 = gcm_add_iv(&context->crypto.ctx_remote.aes_gcm_remote, iv, 12);
+#ifdef WITH_TLS_13
+            }
+#endif
             DEBUG_DUMP_HEX_LABEL("aad iv", iv, 12);
             aad[8] = buf[0];
             aad[9] = buf[1];
@@ -8395,9 +8407,19 @@ int tls_export_context(struct TLSContext *context, unsigned char *buffer, unsign
     
     if (context->crypto.created == 2) {
         // aead
-        tls_packet_uint8(packet, __TLS_AES_GCM_IV_LENGTH);
-        tls_packet_append(packet, context->crypto.ctx_local_mac.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
-        tls_packet_append(packet, context->crypto.ctx_remote_mac.remote_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+#ifdef WITH_TLS_13
+        if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+            tls_packet_uint8(packet, __TLS_13_AES_GCM_IV_LENGTH);
+            tls_packet_append(packet, context->crypto.ctx_local_mac.local_iv, __TLS_13_AES_GCM_IV_LENGTH);
+            tls_packet_append(packet, context->crypto.ctx_remote_mac.remote_iv, __TLS_13_AES_GCM_IV_LENGTH);
+        } else {
+#endif
+            tls_packet_uint8(packet, __TLS_AES_GCM_IV_LENGTH);
+            tls_packet_append(packet, context->crypto.ctx_local_mac.local_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+            tls_packet_append(packet, context->crypto.ctx_remote_mac.remote_aead_iv, __TLS_AES_GCM_IV_LENGTH);
+#ifdef WITH_TLS_13
+        }
+#endif
 #ifdef TLS_WITH_CHACHA20_POLY1305
     } else
     if (context->crypto.created == 3) {
@@ -8548,10 +8570,21 @@ struct TLSContext *tls_import_context(const unsigned char *buffer, unsigned int 
         } else
 #endif
         if (is_aead) {
-            if (iv_len > __TLS_AES_GCM_IV_LENGTH)
-                iv_len = __TLS_AES_GCM_IV_LENGTH;
-            memcpy(context->crypto.ctx_local_mac.local_aead_iv, local_iv, iv_len);
-            memcpy(context->crypto.ctx_remote_mac.remote_aead_iv, remote_iv, iv_len);
+#ifdef WITH_TLS_13
+            if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+                if (iv_len > __TLS_13_AES_GCM_IV_LENGTH)
+                    iv_len = __TLS_13_AES_GCM_IV_LENGTH;
+                memcpy(context->crypto.ctx_local_mac.local_iv, local_iv, iv_len);
+                memcpy(context->crypto.ctx_remote_mac.remote_iv, remote_iv, iv_len);
+            } else {
+#endif
+                if (iv_len > __TLS_AES_GCM_IV_LENGTH)
+                    iv_len = __TLS_AES_GCM_IV_LENGTH;
+                memcpy(context->crypto.ctx_local_mac.local_aead_iv, local_iv, iv_len);
+                memcpy(context->crypto.ctx_remote_mac.remote_aead_iv, remote_iv, iv_len);
+#ifdef WITH_TLS_13
+            }
+#endif
         }
         if (context->is_server) {
             if (__private_tls_crypto_create(context, key_lengths / 2, iv_len, temp, local_iv, temp + key_lengths / 2, remote_iv)) {
