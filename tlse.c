@@ -1250,6 +1250,9 @@ static const unsigned char TLS_EC_secp521r1_OID[] = {0x2B, 0x81, 0x04, 0x00, 0x2
 
 struct TLSCertificate *asn1_parse(struct TLSContext *context, const unsigned char *buffer, int size, int client_cert);
 int __private_tls_update_hash(struct TLSContext *context, const unsigned char *in, unsigned int len);
+#ifdef WITH_TLS_13
+struct TLSPacket *tls_build_encrypted_extensions(struct TLSContext *context);
+#endif
 struct TLSPacket *tls_build_finished(struct TLSContext *context);
 unsigned int __private_tls_hmac_message(unsigned char local, struct TLSContext *context, const unsigned char *buf, int buf_len, const unsigned char *buf2, int buf_len2, unsigned char *out, unsigned int outlen, uint64_t remote_sequence_number);
 int tls_random(unsigned char *key, int len);
@@ -6972,8 +6975,11 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                         context->connection_status = 2;
                         __private_tls_write_packet(tls_build_hello(context, 0));
                         __private_tls13_key(context, 1);
+                        __private_tls_write_packet(tls_build_change_cipher_spec(context));
                         context->cipher_spec_set = 1;
                         context->local_sequence_number = 0;
+                        DEBUG_PRINT("<= SENDING ENCRYPTED EXTENSIONS\n");
+                        __private_tls_write_packet(tls_build_encrypted_extensions(context));
                         DEBUG_PRINT("<= SENDING CERTIFICATE\n");
                         __private_tls_write_packet(tls_build_certificate(context));
                         // DEBUG_PRINT("<= SENDING DONE\n");
@@ -8158,6 +8164,16 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
         context->dtls_seq++;
     return packet;
 }
+
+#ifdef WITH_TLS_13
+struct TLSPacket *tls_build_encrypted_extensions(struct TLSContext *context) {
+    struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 3);
+    tls_packet_uint8(packet, 0x08);
+    tls_packet_uint16(packet, 0);
+    tls_packet_update(packet);
+    return packet;
+}
+#endif
 
 struct TLSPacket *tls_build_finished(struct TLSContext *context) {
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, __TLS_MIN_FINISHED_OPAQUE_LEN + 64);
