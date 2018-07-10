@@ -6224,8 +6224,9 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                     return TLS_BROKEN_PACKET;
                 }
                 DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
-                if (__private_tls_parse_key_share(context, &buf[res + 2], key_size))
-                    return TLS_BROKEN_PACKET;
+                int key_share_err = __private_tls_parse_key_share(context, &buf[res + 2], key_size);
+                if (key_share_err)
+                    return key_share_err;
                 context->connection_status = 3;
                 // we have key share
             } else
