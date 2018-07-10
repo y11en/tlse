@@ -8243,7 +8243,6 @@ struct TLSPacket *tls_build_certificate_verify(struct TLSContext *context) {
         tls_packet_append(packet, out, out_len);
         packet_size += out_len + 2;
     }
-    fprintf(stderr, "PACKET SIZE: %i\n", packet_size);
     packet->buf[size_offset] = packet_size / 0x10000;
     packet_size %= 0x10000;
     packet->buf[size_offset + 1] = packet_size / 0x100;
