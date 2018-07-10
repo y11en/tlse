@@ -1177,6 +1177,7 @@ struct TLSContext {
 #endif
 #ifdef WITH_TLS_13
     unsigned char *finished_key;
+    unsigned char *remote_finished_key;
 #endif
     char **alpn;
     unsigned char alpn_count;
@@ -2662,10 +2663,11 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     static unsigned char earlysecret[__TLS_MAX_HASH_SIZE];
 
     const char *server_key = "s ap traffic";
-    const char *client_key = "c hs traffic";
-    if (handshake)
+    const char *client_key = "c ap traffic";
+    if (handshake) {
         server_key = "s hs traffic";
-        // client_key = "c hs traffic";
+        client_key = "c hs traffic";
+    }
 
     unsigned char salt[__TLS_MAX_HASH_SIZE];
 
@@ -2739,11 +2741,23 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     DEBUG_DUMP_HEX_LABEL("SERVER IV", serveriv, iv_length)
     
     TLS_FREE(context->finished_key);
-    context->finished_key = NULL;
-    context->finished_key = (unsigned char *)TLS_MALLOC(mac_length);
-    if (context->finished_key) {
-        __private_tls_hkdf_expand_label(mac_length, context->finished_key, mac_length, hs_secret, mac_length, "finished", 8, NULL, 0);
-        DEBUG_DUMP_HEX_LABEL("FINISHED", context->finished_key, mac_length)
+    TLS_FREE(context->remote_finished_key);
+    if (handshake) {
+        context->finished_key = (unsigned char *)TLS_MALLOC(mac_length);
+        context->remote_finished_key = (unsigned char *)TLS_MALLOC(mac_length);
+
+        if (context->finished_key) {
+            __private_tls_hkdf_expand_label(mac_length, context->finished_key, mac_length, hs_secret, mac_length, "finished", 8, NULL, 0);
+            DEBUG_DUMP_HEX_LABEL("FINISHED", context->finished_key, mac_length)
+        }
+
+        if (context->remote_finished_key) {
+            __private_tls_hkdf_expand_label(mac_length, context->remote_finished_key, mac_length, secret, mac_length, "finished", 8, NULL, 0);
+            DEBUG_DUMP_HEX_LABEL("FINISHED", context->finished_key, mac_length)
+        }
+    } else {
+        context->finished_key = NULL;
+        context->remote_finished_key = NULL;
     }
 
     if (context->is_server) {
@@ -4491,6 +4505,7 @@ void tls_destroy_context(struct TLSContext *context) {
     TLS_FREE(context->negotiated_alpn);
 #ifdef WITH_TLS_13
     TLS_FREE(context->finished_key);
+    TLS_FREE(context->remote_finished_key);
 #endif
     TLS_FREE(context);
 }
@@ -6690,7 +6705,7 @@ int tls_parse_server_hello_done(struct TLSContext *context, const unsigned char 
 
 int tls_parse_finished(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets) {
     if ((context->connection_status < 2) || (context->connection_status == 0xFF))  {
-        DEBUG_PRINT("UNEXPECTED HELLO MESSAGE\n");
+        DEBUG_PRINT("UNEXPECTED FINISHED MESSAGE\n");
         return TLS_UNEXPECTED_MESSAGE;
     }
     
@@ -6714,33 +6729,66 @@ int tls_parse_finished(struct TLSContext *context, const unsigned char *buf, int
     
     CHECK_SIZE(size, buf_len - res, TLS_NEED_MORE_DATA);
     
-    // verify
-    unsigned char *out = (unsigned char *)TLS_MALLOC(size);
-    if (!out) {
-        DEBUG_PRINT("Error in TLS_MALLOC (%i bytes)\n", (int)size);
-        return TLS_NO_MEMORY;
-    }
-    
     unsigned char hash[__TLS_MAX_SHA_SIZE];
     unsigned int hash_len = __private_tls_get_hash(context, hash);
-    // server verifies client's message
-    if (context->is_server)
-        __private_tls_prf(context, out, size, context->master_key, context->master_key_len, (unsigned char *)"client finished", 15, hash, hash_len, NULL, 0);
-    else
-        __private_tls_prf(context, out, size, context->master_key, context->master_key_len, (unsigned char *)"server finished", 15, hash, hash_len, NULL, 0);
+
+#ifdef WITH_TLS_13
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+        unsigned char hash_out[__TLS_MAX_SHA_SIZE];
+        unsigned long out_size = __TLS_MAX_SHA_SIZE;
+        if ((!context->remote_finished_key) || (!hash_len)) {
+            DEBUG_PRINT("NO FINISHED KEY COMPUTED OR NO HANDSHAKE HASH\n");
+            return TLS_NOT_VERIFIED;
+        }
+
+        DEBUG_DUMP_HEX_LABEL("HS HASH", hash, hash_len);
+        DEBUG_DUMP_HEX_LABEL("HS FINISH", context->remote_finished_key, hash_len);
+
+        out_size = hash_len;
+        hmac_state hmac;    
+        hmac_init(&hmac, __private_tls_get_hash_idx(context), context->remote_finished_key, hash_len);
+        hmac_process(&hmac, hash, hash_len);
+        hmac_done(&hmac, hash_out, &out_size);
+
+        if ((size != out_size) || (memcmp(hash_out, &buf[res], size))) {
+            DEBUG_PRINT("Finished validation error (sequence number, local: %i, remote: %i)\n", (int)context->local_sequence_number, (int)context->remote_sequence_number);
+            DEBUG_DUMP_HEX_LABEL("FINISHED OPAQUE", &buf[res], size);
+            DEBUG_DUMP_HEX_LABEL("VERIFY", hash_out, out_size);
+            return TLS_NOT_VERIFIED;
+        }
+        if (context->is_server) {
+            context->connection_status = 0xFF;
+            res += size;
+            __private_tls13_key(context, 0);
+            context->local_sequence_number = 0;
+            context->remote_sequence_number = 0;
+            return res;
+        }
+    } else
+#endif
+    {
+        // verify
+        unsigned char *out = (unsigned char *)TLS_MALLOC(size);
+        if (!out) {
+            DEBUG_PRINT("Error in TLS_MALLOC (%i bytes)\n", (int)size);
+            return TLS_NO_MEMORY;
+        }
     
-    //unsigned char hash2[__TLS_HASH_SIZE];
-    //hash_len = __private_tls_get_hash(context, hash2);
-    //int x = memcmp(hash, hash2, __TLS_HASH_SIZE);
-    //DEBUG_PRINT("MEMCMP RESULT: %i\n", x);
-    if (memcmp(out, &buf[res], size)) {
+        // server verifies client's message
+        if (context->is_server)
+            __private_tls_prf(context, out, size, context->master_key, context->master_key_len, (unsigned char *)"client finished", 15, hash, hash_len, NULL, 0);
+        else
+            __private_tls_prf(context, out, size, context->master_key, context->master_key_len, (unsigned char *)"server finished", 15, hash, hash_len, NULL, 0);
+    
+        if (memcmp(out, &buf[res], size)) {
+            TLS_FREE(out);
+            DEBUG_PRINT("Finished validation error (sequence number, local: %i, remote: %i)\n", (int)context->local_sequence_number, (int)context->remote_sequence_number);
+            DEBUG_DUMP_HEX_LABEL("FINISHED OPAQUE", &buf[res], size);
+            DEBUG_DUMP_HEX_LABEL("VERIFY", out, size);
+            return TLS_NOT_VERIFIED;
+        }
         TLS_FREE(out);
-        DEBUG_PRINT("Finished validation error (sequence number, local: %i, remote: %i)\n", (int)context->local_sequence_number, (int)context->remote_sequence_number);
-        DEBUG_DUMP_HEX_LABEL("FINISHED OPAQUE", &buf[res], size);
-        DEBUG_DUMP_HEX_LABEL("VERIFY", out, size);
-        return TLS_NOT_VERIFIED;
     }
-    TLS_FREE(out);
     if (context->is_server)
         *write_packets = 3;
     else
@@ -7076,7 +7124,6 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                         DEBUG_PRINT("<= SENDING FINISHED\n");
                         __private_tls_write_packet(tls_build_finished(context));
                         // new key
-                        // __private_tls13_key(context, 0);
                         break;
                     }
 #endif
@@ -7453,7 +7500,16 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
         }
     }
     context->remote_sequence_number++;
-    
+#ifdef WITH_TLS_13
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+        if ((context->connection_status == 2) && (type == TLS_APPLICATION_DATA) && (context->crypto.created)) {
+            do {
+                length--;
+                type = ptr[length];
+            } while (!type);
+        }
+    }
+#endif
     switch (type) {
             // application data
         case TLS_APPLICATION_DATA:
