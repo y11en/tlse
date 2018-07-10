@@ -50,6 +50,7 @@
 #if (CRYPT <= 0x0117)
     #define LTC_PKCS_1_EMSA LTC_LTC_PKCS_1_EMSA
     #define LTC_PKCS_1_V1_5 LTC_LTC_PKCS_1_V1_5
+    #define LTC_PKCS_1_PSS LTC_LTC_PKCS_1_PSS
 #endif
 
 #ifdef WITH_KTLS
@@ -1844,7 +1845,12 @@ int __private_tls_sign_rsa(struct TLSContext *context, unsigned int hash_type, c
             DEBUG_PRINT("Unsupported hash type: %i\n", hash_type);
             return TLS_GENERIC_ERROR;
         }
-        err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_PKCS_1_V1_5, NULL, find_prng("sprng"), hash_idx, 0, &key);
+#ifdef WITH_TLS_13
+        if ((context->version == TLS_V13) || (context->version == DTLS_V13))
+            err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_PKCS_1_PSS, NULL, find_prng("sprng"), hash_idx, hash_type == sha256 ? 32 : 48, &key);
+        else
+#endif
+            err = rsa_sign_hash_ex(hash, hash_len, out, outlen, LTC_PKCS_1_V1_5, NULL, find_prng("sprng"), hash_idx, 0, &key);
     }
     rsa_free(&key);
     if (err)
