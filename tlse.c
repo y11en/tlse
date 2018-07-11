@@ -2456,8 +2456,6 @@ void __private_tls_hkdf_expand_label(unsigned int mac_length, unsigned char *out
     DEBUG_DUMP_HEX_LABEL("INFO", hkdf_label, len);
     __private_tls_hkdf_expand(mac_length, output, outlen, secret, secret_len, hkdf_label, len);
 }
-
-
 #endif
 
 void __private_tls_prf(struct TLSContext *context,
@@ -2803,11 +2801,13 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
         }
     }
     TLS_FREE(context->master_key);
-    context->master_key = TLS_MALLOC(mac_length);
+    context->master_key = (unsigned char *)TLS_MALLOC(mac_length);
     if (context->master_key) {
         memcpy(context->master_key, prk, mac_length);
         context->master_key_len = mac_length;
     }
+    context->local_sequence_number = 0;
+    context->remote_sequence_number = 0;
     
     // extract client_mac_key(mac_key_length)
     // extract server_mac_key(mac_key_length)
@@ -3496,7 +3496,11 @@ struct TLSPacket *tls_create_packet(struct TLSContext *context, unsigned char ty
 #ifdef WITH_TLS_13
     switch (version) {
         case TLS_V13:
-            *(unsigned short *)&packet->buf[1] = 0x0303; // no need to reorder (same bytes)
+            // check if context is not null. If null, is a tls_export_context call
+            if (context)
+                *(unsigned short *)&packet->buf[1] = 0x0303; // no need to reorder (same bytes)
+            else
+                *(unsigned short *)&packet->buf[1] = htons(version);
             break;
         case DTLS_V13:
             *(unsigned short *)&packet->buf[1] = htons(DTLS_V13);
@@ -3608,7 +3612,7 @@ void tls_packet_update(struct TLSPacket *packet) {
     if ((packet) && (!packet->broken)) {                   
         int footer_size = 0;
 #ifdef WITH_TLS_13
-        if (((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) && (packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
+        if ((packet->context) && ((packet->context->version == TLS_V13) || (packet->context->version == DTLS_V13)) && (packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
             // type
             tls_packet_uint8(packet, packet->buf[0]);
             // no padding
@@ -5302,11 +5306,20 @@ void __private_tls_set_session_id(struct TLSContext *context) {
 
 struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrade) {
 #ifdef WITH_TLS_13
+    if (context->connection_status == 4) {
+        static unsigned char sha256_helloretryrequest[] = {0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91, 0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C};
+        memcpy(context->local_random, sha256_helloretryrequest, 32);
+        unsigned char header[4] = {0xFE, 0, 0, 0};
+        unsigned char hash[__TLS_MAX_SHA_SIZE ];
+        int hash_len = __private_tls_done_hash(context, hash);
+        header[3] = (unsigned char)hash_len;
+        __private_tls_update_hash(context, header, sizeof(header));
+        __private_tls_update_hash(context, hash, hash_len);
+    } else
     if ((!context->is_server) || ((context->version != TLS_V13) && (context->version != DTLS_V13)))
 #endif
     if (!tls_random(context->local_random, __TLS_SERVER_RANDOM_SIZE))
         return NULL;
-
     if ((context->is_server) && (tls13_downgrade)) {
         if ((tls13_downgrade == TLS_V12) || (tls13_downgrade == DTLS_V12))
             memcpy(context->local_random + __TLS_SERVER_RANDOM_SIZE - 8, "DOWNGRD\x01", 8);
@@ -5315,6 +5328,13 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
     }
     unsigned short packet_version = context->version;
     unsigned short version = context->version;
+#ifdef WITH_TLS_13
+    if (context->version == TLS_V13)
+        version = TLS_V12;
+    else
+    if (context->version == DTLS_V13)
+        version = DTLS_V12;
+#endif
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, packet_version, 0);
     if (packet) {
         // hello
@@ -5355,6 +5375,10 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
         unsigned long shared_key_len = __TLS_MAX_RSA_KEY;
         unsigned short shared_key_short = 0;
         if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+            if (context->connection_status == 4) {
+                // connection_status == 4 => hello retry request
+                extension_len += 6;
+            } else
             if ((context->is_server) && (context->ecc_dhe)) {
                 if (ecc_ansi_x963_export(context->ecc_dhe, shared_key, &shared_key_len)) {
                     DEBUG_PRINT("Error exporting ECC DHE key\n");
@@ -5630,12 +5654,22 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
         tls_packet_uint16(packet, 0x2B);
         if (context->is_server) {
             tls_packet_uint16(packet, 2);
-            tls_packet_uint16(packet, context->version);
+            // draft 28
+            if (context->version == TLS_V13)
+                tls_packet_uint16(packet, 0x7F1C);
+            else
+                tls_packet_uint16(packet, context->version);
         } else {
             tls_packet_uint8(packet, 4);
             tls_packet_uint16(packet, TLS_V13);
             tls_packet_uint16(packet, TLS_V12);
         }
+        if (context->connection_status == 4) {
+            // fallback to the mandatory secp256r1
+            tls_packet_uint16(packet, 0x33);
+            tls_packet_uint16(packet, 2);
+            tls_packet_uint16(packet, (unsigned short)secp256r1.iana);
+        } else
         if ((shared_key_short) && (context->curve)) {
             // key share
             tls_packet_uint16(packet, 0x33);
@@ -5942,7 +5976,7 @@ int __private_tls_parse_key_share(struct TLSContext *context, const unsigned cha
 int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int buf_len, unsigned int *write_packets, unsigned int *dtls_verified) {
     *write_packets = 0;
     *dtls_verified = 0;
-    if (context->connection_status != 0) {
+    if ((context->connection_status != 0) && (context->connection_status != 4)) {
         // ignore multiple hello on dtls
         if (context->dtls) {
             DEBUG_PRINT("RETRANSMITTED HELLO MESSAGE RECEIVED\n");
@@ -6201,8 +6235,8 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 // supported versions
                 if ((buf[res] == extension_len - 1) && (extension_len > 4)) {
                     DEBUG_DUMP_HEX_LABEL("SUPPORTED VERSIONS", &buf[res], extension_len);
-                    // tls 1.3 draft version
-                    if ((buf[res + 1] == 0x7F) || (ntohs(*(unsigned short *)&buf[res + 1] == TLS_V13))) {
+                    // tls 1.3 draft version 28
+                    if ((ntohs(*(unsigned short *)&buf[res + 1]) == 0x7F1C) || (ntohs(*(unsigned short *)&buf[res + 1]) == TLS_V13)) {
                         context->version = TLS_V13;
                         DEBUG_PRINT("TLS 1.3 SUPPORTED\n");
                     }
@@ -6225,8 +6259,16 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 }
                 DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
                 int key_share_err = __private_tls_parse_key_share(context, &buf[res + 2], key_size);
-                if (key_share_err)
+                if (key_share_err) {
+                    // request hello retry
+                    if (context->connection_status != 4) {
+                        *write_packets = 5;
+                        context->hs_messages[1] = 0;
+                        context->connection_status = 4;
+                        return buf_len;
+                    }
                     return key_share_err;
+                }
                 context->connection_status = 3;
                 // we have key share
             } else
@@ -7115,7 +7157,6 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                         __private_tls_write_packet(tls_build_change_cipher_spec(context));
                         __private_tls13_key(context, 1);
                         context->cipher_spec_set = 1;
-                        context->local_sequence_number = 0;
                         DEBUG_PRINT("<= SENDING ENCRYPTED EXTENSIONS\n");
                         __private_tls_write_packet(tls_build_encrypted_extensions(context));
                         DEBUG_PRINT("<= SENDING CERTIFICATE\n");
@@ -7155,6 +7196,13 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 context->dtls_seq = 1;
                 __private_tls_write_packet(tls_build_hello(context, 0));
                 break;
+#ifdef WITH_TLS_13
+            case 5:
+                // hello retry request
+                DEBUG_PRINT("<= SENDING HELLO RETRY REQUEST\n");
+                __private_tls_write_packet(tls_build_hello(context, 0));
+                break;
+#endif
         }
         payload_size++;
         buf += payload_size;
@@ -7503,7 +7551,7 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
     context->remote_sequence_number++;
 #ifdef WITH_TLS_13
     if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
-        if ((context->connection_status == 2) && (type == TLS_APPLICATION_DATA) && (context->crypto.created)) {
+        if (/*(context->connection_status == 2) && */(type == TLS_APPLICATION_DATA) && (context->crypto.created)) {
             do {
                 length--;
                 type = ptr[length];
@@ -7534,6 +7582,12 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
         case TLS_CHANGE_CIPHER:
             context->dtls_epoch_remote++;
             if (context->connection_status != 2) {
+#ifdef WITH_TLS_13
+                if (context->connection_status == 4) {
+                    DEBUG_PRINT("IGNORING CHANGE CIPHER SPEC MESSAGE (HELLO RETRY REQUEST)\n");
+                    break;
+                }
+#endif
                 DEBUG_PRINT("UNEXPECTED CHANGE CIPHER SPEC MESSAGE (%i)\n", context->connection_status);
                 __private_tls_write_packet(tls_build_alert(context, 1, unexpected_message));
                 payload_res = TLS_UNEXPECTED_MESSAGE;
