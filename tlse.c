@@ -6236,6 +6236,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
         if (cipher_len & 1)
             return TLS_BROKEN_PACKET;
 
+        cipher_buffer = &buf[res];
         res += cipher_len;
         
         CHECK_SIZE(1, buf_len - res, TLS_NEED_MORE_DATA)
