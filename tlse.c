@@ -1221,6 +1221,7 @@ struct TLSContext {
 #ifdef WITH_TLS_13
     unsigned char *finished_key;
     unsigned char *remote_finished_key;
+    unsigned char *server_finished_hash;
 #endif
     char **alpn;
     unsigned char alpn_count;
@@ -2754,14 +2755,14 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     DEBUG_DUMP_HEX_LABEL("messages hash", hash, hash_size);
 
     if (context->is_server) {
-        __private_tls_hkdf_expand_label(mac_length, hs_secret, mac_length, prk, mac_length, server_key, 12, hash, hash_size);
+        __private_tls_hkdf_expand_label(mac_length, hs_secret, mac_length, prk, mac_length, server_key, 12, context->server_finished_hash ? context->server_finished_hash : hash, hash_size);
         DEBUG_DUMP_HEX_LABEL(server_key, hs_secret, mac_length);
         serverkey = local_keybuffer;
         serveriv = local_ivbuffer;
         clientkey = remote_keybuffer;
         clientiv = remote_ivbuffer;
     } else {
-        __private_tls_hkdf_expand_label(mac_length, hs_secret, mac_length, prk, mac_length, client_key, 12, hash, hash_size);
+        __private_tls_hkdf_expand_label(mac_length, hs_secret, mac_length, prk, mac_length, client_key, 12, context->server_finished_hash ? context->server_finished_hash : hash, hash_size);
         serverkey = remote_keybuffer;
         serveriv = remote_ivbuffer;
         clientkey = local_keybuffer;
@@ -2774,10 +2775,11 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
 
     __private_tls_hkdf_expand_label(mac_length, local_keybuffer, key_length, hs_secret, mac_length, "key", 3, NULL, 0);
     __private_tls_hkdf_expand_label(mac_length, local_ivbuffer, iv_length, hs_secret, mac_length, "iv", 2, NULL, 0);
-    if (context->is_server)
-        __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, client_key, 12, hash, hash_size);
-    else
-        __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, server_key, 12, hash, hash_size);
+    if (context->is_server) {
+        __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, client_key, 12, context->server_finished_hash ? context->server_finished_hash : hash, hash_size);
+        DEBUG_DUMP_HEX_LABEL(client_key, secret, mac_length);
+    } else
+        __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, server_key, 12, context->server_finished_hash ? context->server_finished_hash : hash, hash_size);
 
     __private_tls_hkdf_expand_label(mac_length, remote_keybuffer, key_length, secret, mac_length, "key", 3, NULL, 0);
     __private_tls_hkdf_expand_label(mac_length, remote_ivbuffer, iv_length, secret, mac_length, "iv", 2, NULL, 0);
@@ -2805,6 +2807,8 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     } else {
         context->finished_key = NULL;
         context->remote_finished_key = NULL;
+        TLS_FREE(context->server_finished_hash);
+        context->server_finished_hash = NULL;
     }
 
     if (context->is_server) {
@@ -4559,6 +4563,7 @@ void tls_destroy_context(struct TLSContext *context) {
 #ifdef WITH_TLS_13
     TLS_FREE(context->finished_key);
     TLS_FREE(context->remote_finished_key);
+    TLS_FREE(context->server_finished_hash);
 #endif
     TLS_FREE(context);
 }
@@ -7348,6 +7353,10 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                         DEBUG_PRINT("<= SENDING FINISHED\n");
                         __private_tls_write_packet(tls_build_finished(context));
                         // new key
+                        TLS_FREE(context->server_finished_hash);
+                        context->server_finished_hash = (unsigned char *)TLS_MALLOC(__private_tls_mac_length(context));
+                        if (context->server_finished_hash)
+                            __private_tls_get_hash(context, context->server_finished_hash);
                         break;
                     }
 #endif
