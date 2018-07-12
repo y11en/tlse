@@ -8792,8 +8792,22 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
 struct TLSPacket *tls_build_encrypted_extensions(struct TLSContext *context) {
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 3);
     tls_packet_uint8(packet, 0x08);
-    tls_packet_uint24(packet, 2);
-    tls_packet_uint16(packet, 0);
+    if (context->negotiated_alpn) {
+        int alpn_negotiated_len = strlen(context->negotiated_alpn);
+        int alpn_len = alpn_negotiated_len + 1;
+
+        tls_packet_uint24(packet, alpn_len + 8);
+        tls_packet_uint16(packet, alpn_len + 6);
+        tls_packet_uint16(packet, 0x10);
+        tls_packet_uint16(packet, alpn_len + 2);
+        tls_packet_uint16(packet, alpn_len);
+
+        tls_packet_uint8(packet, alpn_negotiated_len);
+        tls_packet_append(packet, (unsigned char *)context->negotiated_alpn, alpn_negotiated_len);
+    } else {
+        tls_packet_uint24(packet, 2);
+        tls_packet_uint16(packet, 0);
+    }
     tls_packet_update(packet);
     return packet;
 }
