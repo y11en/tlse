@@ -5445,7 +5445,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
         int alpn_len = 0;
         int alpn_negotiated_len = 0;
         int i;
-#if WITH_TLS_13
+#ifdef WITH_TLS_13
         unsigned char shared_key[__TLS_MAX_RSA_KEY];
         unsigned long shared_key_len = __TLS_MAX_RSA_KEY;
         unsigned short shared_key_short = 0;
@@ -7035,8 +7035,70 @@ int tls_parse_finished(struct TLSContext *context, const unsigned char *buf, int
     return res;
 }
 
+#ifdef WITH_TLS_13
+int tls_parse_verify_tls13(struct TLSContext *context, const unsigned char *buf, int buf_len) {
+    int res = 0;
+    CHECK_SIZE(7, buf_len, TLS_NEED_MORE_DATA)
+    unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
+    
+    if (size < 2)
+        return buf_len;
+
+    unsigned char out[__TLS_MAX_RSA_KEY];
+    unsigned long out_len = __TLS_MAX_RSA_KEY;
+
+    unsigned char signing_data[__TLS_MAX_HASH_SIZE + 98];
+    int signing_data_len;
+
+    // first 64 bytes to 0x20 (32)
+    memset(signing_data, 0x20, 64);
+    // context string 33 bytes
+    if (context->is_server)
+        memcpy(signing_data + 64, "TLS 1.3, server CertificateVerify", 33);
+    else
+        memcpy(signing_data + 64, "TLS 1.3, client CertificateVerify", 33);
+    // a single 0 byte separator
+    signing_data[97] = 0;
+    signing_data_len = 98;
+
+    signing_data_len += __private_tls_get_hash(context, signing_data + 98);
+    DEBUG_DUMP_HEX_LABEL("signature data", signing_data, signing_data_len);
+    unsigned short signature = ntohs(*(unsigned short *)&buf[3]);
+    unsigned short signature_size = ntohs(*(unsigned short *)&buf[5]);
+    int valid = 0;
+    CHECK_SIZE(7 + size, buf_len, TLS_NEED_MORE_DATA)
+    switch (signature) {
+#ifdef TLS_ECDSA_SUPPORTED
+        case 0x0403:
+            // secp256r1 + sha256
+            valid = __private_tls_verify_ecdsa(context, sha256, buf + 7, signature_size, signing_data, signing_data_len, &secp256r1);
+            break;
+        case 0x0503:
+            // secp384r1 + sha384
+            valid = __private_tls_verify_ecdsa(context, sha384, buf + 7, signature_size, signing_data, signing_data_len, &secp384r1);
+            break;
+        case 0x0603:
+            // secp521r1 + sha512
+            valid = __private_tls_verify_ecdsa(context, sha512, buf + 7, signature_size, signing_data, signing_data_len, &secp521r1);
+            break;
+#endif
+        case 0x0804:
+            valid = __private_tls_verify_rsa(context, sha256, buf + 7, signature_size, signing_data, signing_data_len);
+            break;
+        default:
+            DEBUG_PRINT("Unsupported signature: %x\n", (int)signature);
+            return TLS_UNSUPPORTED_CERTIFICATE;
+    }
+    if (valid != 1) {
+        DEBUG_PRINT("Signature FAILED!\n");
+        return TLS_DECRYPTION_FAILED;
+    }
+    return buf_len;
+}
+#endif
+
 int tls_parse_verify(struct TLSContext *context, const unsigned char *buf, int buf_len) {
- #ifdef WITH_TLS_13
+#ifdef WITH_TLS_13
     if ((context->version == TLS_V13) || (context->version == DTLS_V13))
         return tls_parse_verify_tls13(context, buf, buf_len);
 #endif
@@ -8625,67 +8687,6 @@ struct TLSPacket *tls_build_certificate_verify(struct TLSContext *context) {
 
     tls_packet_update(packet);
     return packet;
-}
-
-
-int tls_parse_verify_tls13(struct TLSContext *context, const unsigned char *buf, int buf_len) {
-    int res = 0;
-    CHECK_SIZE(7, buf_len, TLS_NEED_MORE_DATA)
-    unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
-    
-    if (size < 2)
-        return buf_len;
-
-    unsigned char out[__TLS_MAX_RSA_KEY];
-    unsigned long out_len = __TLS_MAX_RSA_KEY;
-
-    unsigned char signing_data[__TLS_MAX_HASH_SIZE + 98];
-    int signing_data_len;
-
-    // first 64 bytes to 0x20 (32)
-    memset(signing_data, 0x20, 64);
-    // context string 33 bytes
-    if (context->is_server)
-        memcpy(signing_data + 64, "TLS 1.3, server CertificateVerify", 33);
-    else
-        memcpy(signing_data + 64, "TLS 1.3, client CertificateVerify", 33);
-    // a single 0 byte separator
-    signing_data[97] = 0;
-    signing_data_len = 98;
-
-    signing_data_len += __private_tls_get_hash(context, signing_data + 98);
-    DEBUG_DUMP_HEX_LABEL("signature data", signing_data, signing_data_len);
-    unsigned short signature = ntohs(*(unsigned short *)&buf[3]);
-    unsigned short signature_size = ntohs(*(unsigned short *)&buf[5]);
-    int valid = 0;
-    CHECK_SIZE(7 + size, buf_len, TLS_NEED_MORE_DATA)
-    switch (signature) {
-#ifdef TLS_ECDSA_SUPPORTED
-        case 0x0403:
-            // secp256r1 + sha256
-            valid = __private_tls_verify_ecdsa(context, sha256, buf + 7, signature_size, signing_data, signing_data_len, &secp256r1);
-            break;
-        case 0x0503:
-            // secp384r1 + sha384
-            valid = __private_tls_verify_ecdsa(context, sha384, buf + 7, signature_size, signing_data, signing_data_len, &secp384r1);
-            break;
-        case 0x0603:
-            // secp521r1 + sha512
-            valid = __private_tls_verify_ecdsa(context, sha512, buf + 7, signature_size, signing_data, signing_data_len, &secp521r1);
-            break;
-#endif
-        case 0x0804:
-            valid = __private_tls_verify_rsa(context, sha256, buf + 7, signature_size, signing_data, signing_data_len);
-            break;
-        default:
-            DEBUG_PRINT("Unsupported signature: %x\n", (int)signature);
-            return TLS_UNSUPPORTED_CERTIFICATE;
-    }
-    if (valid != 1) {
-        DEBUG_PRINT("Signature FAILED!\n");
-        return TLS_DECRYPTION_FAILED;
-    }
-    return buf_len;
 }
 #endif
 
