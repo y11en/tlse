@@ -4648,7 +4648,7 @@ int tls_cipher_supported(struct TLSContext *context, unsigned short cipher) {
         case TLS_AES_128_GCM_SHA256:
         case TLS_AES_256_GCM_SHA384:
         case TLS_CHACHA20_POLY1305_SHA256:
-            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
+            if ((context->version == TLS_V13) || (context->version == DTLS_V13))
                 return 1;
             return 0;
 #endif
@@ -6198,6 +6198,9 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
         context->session_size = 0;
     res += session_len;
 
+    const unsigned char *cipher_buffer = NULL;
+    unsigned short cipher_len = 0;
+    int scsv_set = 0;
     if (context->is_server) {
         if (context->dtls) {
             CHECK_SIZE(1, buf_len - res, TLS_NEED_MORE_DATA)
@@ -6226,26 +6229,13 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
             }
         }
         CHECK_SIZE(2, buf_len - res, TLS_NEED_MORE_DATA)
-        unsigned short cipher_len = ntohs(*(unsigned short *)&buf[res]);
+        cipher_len = ntohs(*(unsigned short *)&buf[res]);
         res += 2;
         CHECK_SIZE(cipher_len, buf_len - res, TLS_NEED_MORE_DATA)
         // faster than cipher_len % 2
         if (cipher_len & 1)
             return TLS_BROKEN_PACKET;
-        
-        int scsv_set = 0;
-        int cipher = tls_choose_cipher(context, &buf[res], cipher_len, &scsv_set);
-        if (cipher < 0) {
-            DEBUG_PRINT("NO COMMON CIPHERS\n");
-            return cipher;
-        }
-        if ((downgraded) && (scsv_set)) {
-            DEBUG_PRINT("NO DOWNGRADE (SCSV SET)\n");
-            __private_tls_write_packet(tls_build_alert(context, 1, inappropriate_fallback));
-            context->critical_error = 1;
-            return TLS_NOT_SAFE;
-        }
-        context->cipher = cipher;
+
         res += cipher_len;
         
         CHECK_SIZE(1, buf_len - res, TLS_NEED_MORE_DATA)
@@ -6403,8 +6393,10 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                         context->version = TLS_V13;
                         DEBUG_PRINT("TLS 1.3 SUPPORTED\n");
                         if (key_share_err) {
-                            if (context->connection_status == 4)
-                                return buf_len;
+                            if (context->connection_status == 4) {
+                                res = buf_len;
+                                break;
+                            }
                             return key_share_err;
                         }
                     } else
@@ -6457,6 +6449,20 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     }
     if (buf_len != res)
         return TLS_NEED_MORE_DATA;
+    if ((context->is_server) && (cipher_buffer) && (cipher_len)) {
+        int cipher = tls_choose_cipher(context, cipher_buffer, cipher_len, &scsv_set);
+        if (cipher < 0) {
+            DEBUG_PRINT("NO COMMON CIPHERS\n");
+            return cipher;
+        }
+        if ((downgraded) && (scsv_set)) {
+            DEBUG_PRINT("NO DOWNGRADE (SCSV SET)\n");
+            __private_tls_write_packet(tls_build_alert(context, 1, inappropriate_fallback));
+            context->critical_error = 1;
+            return TLS_NOT_SAFE;
+        }
+        context->cipher = cipher;
+    }
     return res;
 }
 
