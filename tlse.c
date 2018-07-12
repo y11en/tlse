@@ -5753,7 +5753,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
             } else {
                 tls_packet_uint8(packet, 4);
                 tls_packet_uint16(packet, TLS_V13);
-                tls_packet_uint16(packet, TLS_V12);
+                tls_packet_uint16(packet, 0x7F1C);
             }
             if (context->connection_status == 4) {
                 // fallback to the mandatory secp256r1
