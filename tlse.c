@@ -6409,26 +6409,28 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 DEBUG_DUMP_HEX_LABEL("EXTENSION, PRE SHARED KEY", &buf[res], extension_len);
             } else
             if (extension_type == 0x33) {
-                // key share
-                int key_size = ntohs(*(unsigned short *)&buf[res]);
-                if ((key_size > extension_len - 2) || (key_size < 0)) {
-                    DEBUG_PRINT("BROKEN KEY SHARE\n");
-                    return TLS_BROKEN_PACKET;
-                }
-                DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
-                int key_share_err = __private_tls_parse_key_share(context, &buf[res + 2], key_size);
-                if (key_share_err) {
-                    // request hello retry
-                    if (context->connection_status != 4) {
-                        *write_packets = 5;
-                        context->hs_messages[1] = 0;
-                        context->connection_status = 4;
-                        return buf_len;
+                if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+                    // key share
+                    int key_size = ntohs(*(unsigned short *)&buf[res]);
+                    if ((key_size > extension_len - 2) || (key_size < 0)) {
+                        DEBUG_PRINT("BROKEN KEY SHARE\n");
+                        return TLS_BROKEN_PACKET;
                     }
-                    return key_share_err;
+                    DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
+                    int key_share_err = __private_tls_parse_key_share(context, &buf[res + 2], key_size);
+                    if (key_share_err) {
+                        // request hello retry
+                        if (context->connection_status != 4) {
+                            *write_packets = 5;
+                            context->hs_messages[1] = 0;
+                            context->connection_status = 4;
+                            return buf_len;
+                        }
+                        return key_share_err;
+                    }
+                    context->connection_status = 3;
+                    // we have key share
                 }
-                context->connection_status = 3;
-                // we have key share
             } else
             if (extension_type == 0x0D) {
                 // signature algorithms
