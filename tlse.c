@@ -1310,6 +1310,7 @@ struct TLSPacket *tls_build_change_cipher_spec(struct TLSContext *context);
 struct TLSPacket *tls_build_verify_request(struct TLSContext *context);
 int __private_tls_crypto_create(struct TLSContext *context, int key_length, int iv_length, unsigned char *localkey, unsigned char *localiv, unsigned char *remotekey, unsigned char *remoteiv);
 int __private_tls_get_hash(struct TLSContext *context, unsigned char *hout);
+int __private_tls_done_hash(struct TLSContext *context, unsigned char *hout);
 int __private_tls_get_hash_idx(struct TLSContext *context);
 int __private_tls_build_random(struct TLSPacket *packet);
 unsigned int __private_tls_mac_length(struct TLSContext *context);
@@ -2745,7 +2746,11 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
     unsigned char secret[__TLS_MAX_MAC_SIZE];
     unsigned char hs_secret[__TLS_MAX_HASH_SIZE];
 
-    int hash_size = __private_tls_get_hash(context, hash);
+    int hash_size;
+    if (handshake)
+        hash_size = __private_tls_get_hash(context, hash);
+    else
+        hash_size = __private_tls_done_hash(context, hash);
     DEBUG_DUMP_HEX_LABEL("messages hash", hash, hash_size);
 
     if (context->is_server) {
@@ -5791,24 +5796,57 @@ struct TLSPacket *tls_certificate_request(struct TLSContext *context) {
         if (context->dtls)
             __private_dtls_handshake_data(context, packet, 0);
         int start_len = packet->len;
-        tls_packet_uint8(packet, 1);
-        tls_packet_uint8(packet, rsa_sign);
-        if ((context->version == TLS_V12) || (context->version == DTLS_V12) || (context->version == TLS_V13) || (context->version == DTLS_V13)) {
-            // 10 pairs or 2 bytes
-            tls_packet_uint16(packet, 10);
-            tls_packet_uint8(packet, sha256);
-            tls_packet_uint8(packet, rsa);
-            tls_packet_uint8(packet, sha1);
-            tls_packet_uint8(packet, rsa);
-            tls_packet_uint8(packet, sha384);
-            tls_packet_uint8(packet, rsa);
-            tls_packet_uint8(packet, sha512);
-            tls_packet_uint8(packet, rsa);
-            tls_packet_uint8(packet, md5);
-            tls_packet_uint8(packet, rsa);
+#ifdef WITH_TLS_13
+        if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+            // certificate request context
+            tls_packet_uint8(packet, 0);
+            // extensions
+            tls_packet_uint16(packet, 18);
+            // signature algorithms
+            tls_packet_uint16(packet, 0x0D);
+            tls_packet_uint16(packet, 14);
+            tls_packet_uint16(packet, 12);
+            // rsa_pkcs1_sha256
+            // tls_packet_uint16(packet, 0x0401);
+            // rsa_pkcs1_sha384
+            // tls_packet_uint16(packet, 0x0501);
+            // rsa_pkcs1_sha512
+            // tls_packet_uint16(packet, 0x0601);
+
+            // ecdsa_secp256r1_sha256
+            tls_packet_uint16(packet, 0x0403);
+            // ecdsa_secp384r1_sha384
+            tls_packet_uint16(packet, 0x0503);
+            // ecdsa_secp521r1_sha512
+            tls_packet_uint16(packet, 0x0604);
+            // rsa_pss_rsae_sha256
+            tls_packet_uint16(packet, 0x0804);
+            // rsa_pss_rsae_sha384
+            tls_packet_uint16(packet, 0x0805);
+            // rsa_pss_rsae_sha512
+            tls_packet_uint16(packet, 0x0806);
+        } else
+#endif
+        {
+            tls_packet_uint8(packet, 1);
+            tls_packet_uint8(packet, rsa_sign);
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+                // 10 pairs or 2 bytes
+                tls_packet_uint16(packet, 10);
+                tls_packet_uint8(packet, sha256);
+                tls_packet_uint8(packet, rsa);
+                tls_packet_uint8(packet, sha1);
+                tls_packet_uint8(packet, rsa);
+                tls_packet_uint8(packet, sha384);
+                tls_packet_uint8(packet, rsa);
+                tls_packet_uint8(packet, sha512);
+                tls_packet_uint8(packet, rsa);
+                tls_packet_uint8(packet, md5);
+                tls_packet_uint8(packet, rsa);
+            }
+            // no DistinguishedName yet
+            tls_packet_uint16(packet, 0);
         }
-        // no DistinguishedName yet
-        tls_packet_uint16(packet, 0);
         if ((!packet->broken) && (packet->buf)) {
             int remaining = packet->len - start_len;
             int payload_pos = 6;
@@ -6399,13 +6437,21 @@ int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, 
     if (size_of_all_certificates <= 4)
         return 3 + size_of_all_certificates;
     res += 3;
-
     if (context->dtls) {
         int dtls_check = __private_dtls_check_packet(buf, buf_len);
         if (dtls_check < 0)
             return dtls_check;
         res += 8;
     }
+#ifdef WITH_TLS_13
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+        int context_size = buf[res];
+        res++;
+        // must be 0
+        if (context_size)
+            res += context_size;
+    }
+#endif
 
     CHECK_SIZE(size_of_all_certificates, buf_len - res, TLS_NEED_MORE_DATA);
     int size = size_of_all_certificates;
@@ -6462,9 +6508,24 @@ int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, 
                 }
             }
             res2 += certificate_size2;
+#ifdef WITH_TLS_13
+            // extension
+            if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+                if (remaining >= 2) {
+                    // ignore extensions
+                    remaining -= 2;
+                    unsigned short size = ntohs(*(unsigned short *)&buf[res2]);
+                    if ((size) && (size >= remaining)) {
+                        res2 += size;
+                        remaining -= size;
+                    }
+                }
+            }
+#endif
         } while (remaining > 0);
-        if (remaining)
+        if (remaining) {
             DEBUG_PRINT("Extra %i bytes after certificate\n", remaining);
+        }
         size -= certificate_size + 3;
         res += certificate_size;
     }
@@ -7090,6 +7151,21 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
             case 0x0B:
                 CHECK_HANDSHAKE_STATE(context, 4, 1);
                 DEBUG_PRINT(" => CERTIFICATE\n");
+#ifdef WITH_TLS_13
+                if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+                    if (context->connection_status == 2) {
+                        payload_res = tls_parse_certificate(context, buf + 1, payload_size, context->is_server);
+                        if (context->is_server) {
+                            if ((certificate_verify) && (context->client_certificates_count))
+                                certificate_verify_alert = certificate_verify(context, context->client_certificates, context->client_certificates_count);
+                            // empty certificates are permitted for client
+                            if (payload_res <= 0)
+                                payload_res = 1;
+                        }
+                    } else
+                        payload_res = TLS_UNEXPECTED_MESSAGE;
+                } else
+#endif
                 if (context->connection_status == 1) {
                     if (context->is_server) {
                         // client certificate
@@ -7261,6 +7337,10 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                         context->cipher_spec_set = 1;
                         DEBUG_PRINT("<= SENDING ENCRYPTED EXTENSIONS\n");
                         __private_tls_write_packet(tls_build_encrypted_extensions(context));
+                        if (context->request_client_certificate) {
+                            DEBUG_PRINT("<= SENDING CERTIFICATE REQUEST\n");
+                            __private_tls_write_packet(tls_certificate_request(context));
+                        }
                         DEBUG_PRINT("<= SENDING CERTIFICATE\n");
                         __private_tls_write_packet(tls_build_certificate(context));
                         DEBUG_PRINT("<= SENDING CERTIFICATE VERIFY\n");
