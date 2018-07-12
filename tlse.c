@@ -6252,7 +6252,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     if (res > 2)
         res += 2;
 #ifdef WITH_TLS_13
-    unsigned char *key_share = NULL;
+    const unsigned char *key_share = NULL;
     unsigned short key_size = 0;
 #endif
     while (buf_len - res >= 4) {
