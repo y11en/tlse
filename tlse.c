@@ -5738,41 +5738,43 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
             }
         }
 #ifdef WITH_TLS_13
-        // supported versions
-        tls_packet_uint16(packet, 0x2B);
-        if (context->is_server) {
-            tls_packet_uint16(packet, 2);
-            // draft 28
-            if (context->version == TLS_V13)
-                tls_packet_uint16(packet, 0x7F1C);
-            else
-                tls_packet_uint16(packet, context->version);
-        } else {
-            tls_packet_uint8(packet, 4);
-            tls_packet_uint16(packet, TLS_V13);
-            tls_packet_uint16(packet, TLS_V12);
-        }
-        if (context->connection_status == 4) {
-            // fallback to the mandatory secp256r1
-            tls_packet_uint16(packet, 0x33);
-            tls_packet_uint16(packet, 2);
-            tls_packet_uint16(packet, (unsigned short)secp256r1.iana);
-        }
-        if ((shared_key_short) && (selected_group)) {
-            // key share
-            tls_packet_uint16(packet, 0x33);
+        if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+            // supported versions
+            tls_packet_uint16(packet, 0x2B);
             if (context->is_server) {
-                tls_packet_uint16(packet, shared_key_short + 4);
-                tls_packet_uint16(packet, (unsigned short)selected_group);
-                tls_packet_uint16(packet, shared_key_short);
-                tls_packet_append(packet, (unsigned char *)shared_key, shared_key_short);
-            }/* else {
-                tls_packet_uint16(packet, shared_key_short + 6);
-                tls_packet_uint16(packet, shared_key_short + 4);
-                tls_packet_uint16(packet, (unsigned short)context->curve->iana);
-                tls_packet_uint16(packet, shared_key_short);
-                tls_packet_append(packet, (unsigned char *)shared_key, shared_key_short);
-            }*/
+                tls_packet_uint16(packet, 2);
+                // draft 28
+                if (context->version == TLS_V13)
+                    tls_packet_uint16(packet, 0x7F1C);
+                else
+                    tls_packet_uint16(packet, context->version);
+            } else {
+                tls_packet_uint8(packet, 4);
+                tls_packet_uint16(packet, TLS_V13);
+                tls_packet_uint16(packet, TLS_V12);
+            }
+            if (context->connection_status == 4) {
+                // fallback to the mandatory secp256r1
+                tls_packet_uint16(packet, 0x33);
+                tls_packet_uint16(packet, 2);
+                tls_packet_uint16(packet, (unsigned short)secp256r1.iana);
+            }
+            if ((shared_key_short) && (selected_group)) {
+                // key share
+                tls_packet_uint16(packet, 0x33);
+                if (context->is_server) {
+                    tls_packet_uint16(packet, shared_key_short + 4);
+                    tls_packet_uint16(packet, (unsigned short)selected_group);
+                    tls_packet_uint16(packet, shared_key_short);
+                    tls_packet_append(packet, (unsigned char *)shared_key, shared_key_short);
+                }/* else {
+                    tls_packet_uint16(packet, shared_key_short + 6);
+                    tls_packet_uint16(packet, shared_key_short + 4);
+                    tls_packet_uint16(packet, (unsigned short)context->curve->iana);
+                    tls_packet_uint16(packet, shared_key_short);
+                    tls_packet_append(packet, (unsigned char *)shared_key, shared_key_short);
+                }*/
+            }
         }
 #endif
         
