@@ -6276,7 +6276,8 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     if (res > 0) {
         if (context->is_server)
             *write_packets = 2;
-        context->connection_status = 1;
+        if (context->connection_status != 4)
+            context->connection_status = 1;
     }
     
     
@@ -6284,6 +6285,10 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
         res += 2;
     }
     // ignore extensions for now
+    int key_share_err = 0;
+#ifdef WITH_TLS_13
+    int old_write_packets = *write_packets;
+#endif
     while (buf_len - res >= 4) {
         // have extensions
         unsigned short extension_type = ntohs(*(unsigned short *)&buf[res]);
@@ -6397,6 +6402,16 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                     if ((ntohs(*(unsigned short *)&buf[res + 1]) == 0x7F1C) || (ntohs(*(unsigned short *)&buf[res + 1]) == TLS_V13)) {
                         context->version = TLS_V13;
                         DEBUG_PRINT("TLS 1.3 SUPPORTED\n");
+                        if (key_share_err) {
+                            if (context->connection_status == 4)
+                                return buf_len;
+                            return key_share_err;
+                        }
+                    } else
+                    if (context->connection_status >= 3) {
+                        context->connection_status = 1;
+                        context->hs_messages[1] = 1;
+                        *write_packets = old_write_packets;
                     }
                 }
             } else
@@ -6409,28 +6424,24 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
                 DEBUG_DUMP_HEX_LABEL("EXTENSION, PRE SHARED KEY", &buf[res], extension_len);
             } else
             if (extension_type == 0x33) {
-                if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
-                    // key share
-                    int key_size = ntohs(*(unsigned short *)&buf[res]);
-                    if ((key_size > extension_len - 2) || (key_size < 0)) {
-                        DEBUG_PRINT("BROKEN KEY SHARE\n");
-                        return TLS_BROKEN_PACKET;
-                    }
-                    DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
-                    int key_share_err = __private_tls_parse_key_share(context, &buf[res + 2], key_size);
-                    if (key_share_err) {
-                        // request hello retry
-                        if (context->connection_status != 4) {
-                            *write_packets = 5;
-                            context->hs_messages[1] = 0;
-                            context->connection_status = 4;
-                            return buf_len;
-                        }
-                        return key_share_err;
-                    }
-                    context->connection_status = 3;
-                    // we have key share
+                // key share
+                int key_size = ntohs(*(unsigned short *)&buf[res]);
+                if ((key_size > extension_len - 2) || (key_size < 0)) {
+                    DEBUG_PRINT("BROKEN KEY SHARE\n");
+                    return TLS_BROKEN_PACKET;
                 }
+                DEBUG_DUMP_HEX_LABEL("EXTENSION, KEY SHARE", &buf[res], extension_len);
+                key_share_err = __private_tls_parse_key_share(context, &buf[res + 2], key_size);
+                if (key_share_err) {
+                    // request hello retry
+                    if (context->connection_status != 4) {
+                        *write_packets = 5;
+                        context->hs_messages[1] = 0;
+                        context->connection_status = 4;
+                    }
+                }
+                context->connection_status = 3;
+                // we have key share
             } else
             if (extension_type == 0x0D) {
                 // signature algorithms
