@@ -7036,6 +7036,10 @@ int tls_parse_finished(struct TLSContext *context, const unsigned char *buf, int
 }
 
 int tls_parse_verify(struct TLSContext *context, const unsigned char *buf, int buf_len) {
+ #ifdef WITH_TLS_13
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13))
+        return tls_parse_verify_tls13(context, buf, buf_len);
+#endif
     CHECK_SIZE(7, buf_len, TLS_BAD_CERTIFICATE)
     unsigned int bytes_to_follow = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     CHECK_SIZE(bytes_to_follow, buf_len - 3, TLS_BAD_CERTIFICATE)
@@ -7230,14 +7234,6 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
             case 0x0F:
                 CHECK_HANDSHAKE_STATE(context, 8, 1);
                 DEBUG_PRINT(" => CERTIFICATE VERIFY\n");
-#ifdef WITH_TLS_13
-                if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
-                    if (context->connection_status == 1)
-                        payload_res = tls_parse_verify_tls13(context, buf + 1, payload_size);
-                    else
-                        payload_res = TLS_UNEXPECTED_MESSAGE;
-                } else
-#endif
                 if (context->connection_status == 2)
                     payload_res = tls_parse_verify(context, buf + 1, payload_size);
                 else
