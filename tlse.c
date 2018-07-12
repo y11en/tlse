@@ -4648,7 +4648,9 @@ int tls_cipher_supported(struct TLSContext *context, unsigned short cipher) {
         case TLS_AES_128_GCM_SHA256:
         case TLS_AES_256_GCM_SHA384:
         case TLS_CHACHA20_POLY1305_SHA256:
-            return 1;
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
+                return 1;
+            return 0;
 #endif
 #ifdef TLS_FORWARD_SECRECY
 #ifdef TLS_ECDSA_SUPPORTED
@@ -4775,14 +4777,14 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
         case TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
         case TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
 #endif
-            if ((context->version == TLS_V13) || (context->version == DTLS_V13) || (context->version == TLS_V12) || (context->version == DTLS_V12))
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
                 return 1;
             break;
 #ifdef WITH_TLS_13
         case TLS_AES_128_GCM_SHA256:
         case TLS_AES_256_GCM_SHA384:
         case TLS_CHACHA20_POLY1305_SHA256:
-            if ((context->version == TLS_V13) || (context->version == DTLS_V13) || (context->version == TLS_V12) || (context->version == DTLS_V12))
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
                 return 1;
             break;
 #endif
