@@ -5482,8 +5482,10 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
             else
                 extension_len += 9;
         }
-#endif
+        if ((context->is_server) && (context->negotiated_alpn) && (context->version != TLS_V13) && (context->version != DTLS_V13)) {
+#else
         if ((context->is_server) && (context->negotiated_alpn)) {
+#endif
             alpn_negotiated_len = strlen(context->negotiated_alpn);
             alpn_len = alpn_negotiated_len + 1;
             extension_len += alpn_len + 6;
