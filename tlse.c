@@ -4740,7 +4740,7 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
         case TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384:
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
-            if ((context->version == TLS_V13) || (context->version == DTLS_V13) || (context->version == TLS_V12) || (context->version == DTLS_V12)) {
+            if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
                 if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
                     return 1;
             }
@@ -4750,8 +4750,6 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
         case TLS_DHE_RSA_WITH_AES_256_CBC_SHA:
         case TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA:
         case TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA:
-            if ((context->version == TLS_V13) || (context->version == DTLS_V13))
-                return 0;
             return 1;
         case TLS_DHE_RSA_WITH_AES_128_CBC_SHA256:
         case TLS_DHE_RSA_WITH_AES_256_CBC_SHA256:
@@ -4767,14 +4765,6 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
             if ((context->version == TLS_V12) || (context->version == DTLS_V12))
                 return 1;
             break;
-#ifdef WITH_TLS_13
-        case TLS_AES_128_GCM_SHA256:
-        case TLS_AES_256_GCM_SHA384:
-        case TLS_CHACHA20_POLY1305_SHA256:
-            if ((context->version == TLS_V12) || (context->version == DTLS_V12))
-                return 1;
-            break;
-#endif
     }
     return 0;
 }
