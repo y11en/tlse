@@ -6419,7 +6419,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
     }
 #ifdef WITH_TLS_13
     if ((key_share) && (key_size) && ((context->version == TLS_V13) || (context->version == DTLS_V13))) {
-        int key_share_err = __private_tls_parse_key_share(context, &buf[res + 2], key_size);
+        int key_share_err = __private_tls_parse_key_share(context, key_share, key_size);
         if (key_share_err) {
             // request hello retry
             if (context->connection_status != 4) {
