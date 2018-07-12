@@ -1753,6 +1753,11 @@ int __private_tls_verify_rsa(struct TLSContext *context, unsigned int hash_type,
         err = __private_rsa_verify_hash_md5sha1(buffer, len, hash, hash_len, &rsa_stat, &key);
     else
 #endif
+#ifdef WITH_TLS_13
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13))
+        err = rsa_verify_hash_ex(buffer, len, hash, hash_len, LTC_PKCS_1_PSS, hash_idx, 0, &rsa_stat, &key);
+    else
+#endif
         err = rsa_verify_hash_ex(buffer, len, hash, hash_len, LTC_PKCS_1_V1_5, hash_idx, 0, &rsa_stat, &key);
     rsa_free(&key);
     if (err)
@@ -2178,7 +2183,7 @@ int __private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type,
     return 1;
 }
 
-#ifdef TLS_CLIENT_ECDSA
+#if defined(TLS_CLIENT_ECDSA) || defined(WITH_TLS_13)
 int __private_tls_ecc_import_pk(const unsigned char *public_key, int public_len, ecc_key *key, const ltc_ecc_set_type *dp) {
     int           err;
     
@@ -2225,25 +2230,28 @@ int __private_tls_ecc_import_pk(const unsigned char *public_key, int public_len,
     return CRYPT_OK;
 }
 
-int __private_tls_verify_ecdsa(struct TLSContext *context, unsigned int hash_type, const unsigned char *buffer, unsigned int len, const unsigned char *message, unsigned int message_len) {
+int __private_tls_verify_ecdsa(struct TLSContext *context, unsigned int hash_type, const unsigned char *buffer, unsigned int len, const unsigned char *message, unsigned int message_len, const struct ECCCurveParameters *curve_hint) {
     tls_init();
     ecc_key key;
     int err;
-    
+
+    if (!curve_hint)
+        curve_hint = context->curve;
+
     if (context->is_server) {
         if ((!len) || (!context) || (!context->client_certificates) || (!context->client_certificates_count) || (!context->client_certificates[0]) ||
-            (!context->client_certificates[0]->pk) || (!context->client_certificates[0]->pk_len) || (!context->curve)) {
+            (!context->client_certificates[0]->pk) || (!context->client_certificates[0]->pk_len) || (!curve_hint)) {
             DEBUG_PRINT("No client certificate set\n");
             return TLS_GENERIC_ERROR;
         }
-        err = __private_tls_ecc_import_pk(context->client_certificates[0]->pk, context->client_certificates[0]->pk_len, &key, (ltc_ecc_set_type *)&context->curve->dp);
+        err = __private_tls_ecc_import_pk(context->client_certificates[0]->pk, context->client_certificates[0]->pk_len, &key, (ltc_ecc_set_type *)&curve_hint->dp);
     } else {
         if ((!len) || (!context) || (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]) ||
-            (!context->certificates[0]->pk) || (!context->certificates[0]->pk_len) || (!context->curve)) {
+            (!context->certificates[0]->pk) || (!context->certificates[0]->pk_len) || (!curve_hint)) {
             DEBUG_PRINT("No server certificate set\n");
             return TLS_GENERIC_ERROR;
         }
-        err = __private_tls_ecc_import_pk(context->certificates[0]->pk, context->certificates[0]->pk_len, &key, (ltc_ecc_set_type *)&context->curve->dp);
+        err = __private_tls_ecc_import_pk(context->certificates[0]->pk, context->certificates[0]->pk_len, &key, (ltc_ecc_set_type *)&curve_hint->dp);
     }
     if (err) {
         DEBUG_PRINT("Error importing ECC certificate (code: %i)", err);
@@ -2775,10 +2783,9 @@ int __private_tls13_key(struct TLSContext *context, int handshake) {
 
     __private_tls_hkdf_expand_label(mac_length, local_keybuffer, key_length, hs_secret, mac_length, "key", 3, NULL, 0);
     __private_tls_hkdf_expand_label(mac_length, local_ivbuffer, iv_length, hs_secret, mac_length, "iv", 2, NULL, 0);
-    if (context->is_server) {
+    if (context->is_server)
         __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, client_key, 12, context->server_finished_hash ? context->server_finished_hash : hash, hash_size);
-        DEBUG_DUMP_HEX_LABEL(client_key, secret, mac_length);
-    } else
+    else
         __private_tls_hkdf_expand_label(mac_length, secret, mac_length, prk, mac_length, server_key, 12, context->server_finished_hash ? context->server_finished_hash : hash, hash_size);
 
     __private_tls_hkdf_expand_label(mac_length, remote_keybuffer, key_length, secret, mac_length, "key", 3, NULL, 0);
@@ -6789,7 +6796,7 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         memcpy(message + __TLS_CLIENT_RANDOM_SIZE + __TLS_SERVER_RANDOM_SIZE, packet_ref, packet_size);
 #ifdef TLS_CLIENT_ECDSA
         if (tls_is_ecdsa(context)) {
-            if (__private_tls_verify_ecdsa(context, hash_algorithm, signature, sign_size, message, message_len) != 1) {
+            if (__private_tls_verify_ecdsa(context, hash_algorithm, signature, sign_size, message, message_len, NULL) != 1) {
                 DEBUG_PRINT("ECC Server signature FAILED!\n");
                 TLS_FREE(message);
                 return TLS_BROKEN_PACKET;
@@ -7223,6 +7230,14 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
             case 0x0F:
                 CHECK_HANDSHAKE_STATE(context, 8, 1);
                 DEBUG_PRINT(" => CERTIFICATE VERIFY\n");
+#ifdef WITH_TLS_13
+                if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+                    if (context->connection_status == 1)
+                        payload_res = tls_parse_verify_tls13(context, buf + 1, payload_size);
+                    else
+                        payload_res = TLS_UNEXPECTED_MESSAGE;
+                } else
+#endif
                 if (context->connection_status == 2)
                     payload_res = tls_parse_verify(context, buf + 1, payload_size);
                 else
@@ -7299,6 +7314,9 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 case TLS_NO_RENEGOTIATION:
                     __private_tls_write_packet(tls_build_alert(context, 0, no_renegotiation));
                     payload_res = 0;
+                    break;
+                case TLS_DECRYPTION_FAILED:
+                    __private_tls_write_packet(tls_build_alert(context, 1, decryption_failed_RESERVED));
                     break;
             }
             if (payload_res < 0)
@@ -8611,6 +8629,67 @@ struct TLSPacket *tls_build_certificate_verify(struct TLSContext *context) {
 
     tls_packet_update(packet);
     return packet;
+}
+
+
+int tls_parse_verify_tls13(struct TLSContext *context, const unsigned char *buf, int buf_len) {
+    int res = 0;
+    CHECK_SIZE(7, buf_len, TLS_NEED_MORE_DATA)
+    unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
+    
+    if (size < 2)
+        return buf_len;
+
+    unsigned char out[__TLS_MAX_RSA_KEY];
+    unsigned long out_len = __TLS_MAX_RSA_KEY;
+
+    unsigned char signing_data[__TLS_MAX_HASH_SIZE + 98];
+    int signing_data_len;
+
+    // first 64 bytes to 0x20 (32)
+    memset(signing_data, 0x20, 64);
+    // context string 33 bytes
+    if (context->is_server)
+        memcpy(signing_data + 64, "TLS 1.3, server CertificateVerify", 33);
+    else
+        memcpy(signing_data + 64, "TLS 1.3, client CertificateVerify", 33);
+    // a single 0 byte separator
+    signing_data[97] = 0;
+    signing_data_len = 98;
+
+    signing_data_len += __private_tls_get_hash(context, signing_data + 98);
+    DEBUG_DUMP_HEX_LABEL("signature data", signing_data, signing_data_len);
+    unsigned short signature = ntohs(*(unsigned short *)&buf[3]);
+    unsigned short signature_size = ntohs(*(unsigned short *)&buf[5]);
+    int valid = 0;
+    CHECK_SIZE(7 + size, buf_len, TLS_NEED_MORE_DATA)
+    switch (signature) {
+#ifdef TLS_ECDSA_SUPPORTED
+        case 0x0403:
+            // secp256r1 + sha256
+            valid = __private_tls_verify_ecdsa(context, sha256, buf + 7, signature_size, signing_data, signing_data_len, &secp256r1);
+            break;
+        case 0x0503:
+            // secp384r1 + sha384
+            valid = __private_tls_verify_ecdsa(context, sha384, buf + 7, signature_size, signing_data, signing_data_len, &secp384r1);
+            break;
+        case 0x0603:
+            // secp521r1 + sha512
+            valid = __private_tls_verify_ecdsa(context, sha512, buf + 7, signature_size, signing_data, signing_data_len, &secp521r1);
+            break;
+#endif
+        case 0x0804:
+            valid = __private_tls_verify_rsa(context, sha256, buf + 7, signature_size, signing_data, signing_data_len);
+            break;
+        default:
+            DEBUG_PRINT("Unsupported signature: %x\n", (int)signature);
+            return TLS_UNSUPPORTED_CERTIFICATE;
+    }
+    if (valid != 1) {
+        DEBUG_PRINT("Signature FAILED!\n");
+        return TLS_DECRYPTION_FAILED;
+    }
+    return buf_len;
 }
 #endif
 
