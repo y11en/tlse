@@ -58,6 +58,11 @@
     #include <sys/socket.h>
     #include <netinet/tcp.h>
 #endif
+
+#ifdef WITH_TLS_13
+    #define TLS_CURVE25519
+    #include "curve25519.c"
+#endif
 // using ChaCha20 implementation by D. J. Bernstein
 
 #include "tlse.h"
@@ -1113,6 +1118,7 @@ static struct ECCCurveParameters secp521r1 = {
     "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
 };
 
+// dummy
 static struct ECCCurveParameters x25519 = {
     32,
     29,
@@ -1145,7 +1151,6 @@ void init_curves() {
     init_curve(&secp256k1);
     init_curve(&secp384r1);
     init_curve(&secp521r1);
-    init_curve(&x25519);
 }
 #endif
 
@@ -5435,6 +5440,20 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
                 extension_len += 6;
             } else
             if (context->is_server) {
+#ifdef TLS_CURVE25519
+                if (context->curve == &x25519) {
+                    extension_len += 8 + 32;
+                    shared_key_short = (unsigned short)32;
+                    if (context->finished_key) {
+                        memcpy(shared_key, context->finished_key, 32);
+                        TLS_FREE(context->finished_key);
+                        context->finished_key = NULL;
+                    }
+                    selected_group = context->curve->iana;
+                    // make context->curvel NULL (x25519 is a different implementation)
+                    context->curve = NULL;
+                } else
+#endif
                 if (context->ecc_dhe) {
                     if (ecc_ansi_x963_export(context->ecc_dhe, shared_key, &shared_key_len)) {
                         DEBUG_PRINT("Error exporting ECC DHE key\n");
@@ -6008,12 +6027,19 @@ int __private_tls_parse_key_share(struct TLSContext *context, const unsigned cha
                 break;
             case 0x001D:
                 // x25519
-                /* curve = &x25519;
+#ifdef TLS_CURVE25519
+                if (key_size != 32) {
+                    DEBUG_PRINT("INVALID x25519 KEY SIZE (%i)\n", key_size);
+                    continue;
+                }
+                curve = &x25519;
                 buffer = &buf[i];
                 DEBUG_PRINT("KEY SHARE => x25519\n");
                 buf_len = 0;
-                continue;*/
+                continue;
+#endif
                 break;
+
             case 0x001E:
                 // x448
                 break;
@@ -6043,6 +6069,39 @@ int __private_tls_parse_key_share(struct TLSContext *context, const unsigned cha
     }
     tls_init();
     if (curve) {
+        context->curve = curve;
+#ifdef TLS_CURVE25519
+        if (curve == &x25519) {
+            if (!tls_random(context->local_random, __TLS_SERVER_RANDOM_SIZE))
+                return TLS_GENERIC_ERROR;
+            unsigned char secret[32];
+            static const unsigned char basepoint[32] = {9};
+
+            tls_random(secret, 32);
+
+            secret[0] &= 248;
+            secret[31] &= 127;
+            secret[31] |= 64;
+
+            // use finished key to store public key
+            TLS_FREE(context->finished_key);
+            context->finished_key = (unsigned char *)TLS_MALLOC(32);
+            if (!context->finished_key)
+                return TLS_GENERIC_ERROR;
+
+            curve25519(context->finished_key, secret, basepoint);
+
+            TLS_FREE(context->premaster_key);
+            context->premaster_key = (unsigned char *)TLS_MALLOC(32);
+            if (!context->premaster_key)
+                return TLS_GENERIC_ERROR;
+
+            curve25519(context->premaster_key, secret, buffer);
+            context->premaster_key_len = 32;
+
+            return 0;
+        }
+#endif
         __private_tls_ecc_dhe_create(context);       
         ltc_ecc_set_type *dp = (ltc_ecc_set_type *)&context->curve->dp;
         if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, dp)) {
@@ -6102,6 +6161,7 @@ int __private_tls_parse_key_share(struct TLSContext *context, const unsigned cha
         context->premaster_key_len = dhe_out_size;
         if (context->dhe)
             context->dhe->iana = dhkey->iana;
+        return 0;
     }
     DEBUG_PRINT("NO COMMON KEY SHARE SUPPORTED\n");
     return TLS_NO_COMMON_CIPHER;
@@ -6382,7 +6442,7 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
             if (extension_type == 0x33) {
                 // key share
                 key_size = ntohs(*(unsigned short *)&buf[res]);
-                if ((key_size > extension_len - 2) || (key_size < 0)) {
+                if (key_size > extension_len - 2) {
                     DEBUG_PRINT("BROKEN KEY SHARE\n");
                     return TLS_BROKEN_PACKET;
                 }
