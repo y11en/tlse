@@ -6684,12 +6684,12 @@ int __private_tls_build_random(struct TLSPacket *packet) {
     
     // max supported version
     if (packet->context->is_server)
-        *(unsigned short *)&rand_bytes[0] = htons(packet->context->version);
+        *(unsigned short *)rand_bytes = htons(packet->context->version);
     else
     if (packet->context->dtls)
-        *(unsigned short *)&rand_bytes[0] = htons(DTLS_V12);
+        *(unsigned short *)rand_bytes = htons(DTLS_V12);
     else
-        *(unsigned short *)&rand_bytes[0] = htons(TLS_V12);
+        *(unsigned short *)rand_bytes = htons(TLS_V12);
     //DEBUG_DUMP_HEX_LABEL("PREMASTER KEY", rand_bytes, bytes);
     
     TLS_FREE(packet->context->premaster_key);
