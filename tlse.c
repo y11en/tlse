@@ -266,6 +266,8 @@ typedef struct chacha_ctx chacha_ctx;
 static const char sigma[] = "expand 32-byte k";
 static const char tau[] = "expand 16-byte k";
 
+static unsigned char dtls_secret[32];
+
 static inline void chacha_keysetup(chacha_ctx *x, const u8 *k, u32 kbits) {
     const char *constants;
 
@@ -1407,6 +1409,7 @@ void tls_init() {
 #ifdef TLS_FORWARD_SECRECY
     init_curves();
 #endif
+    tls_random(dtls_secret, sizeof(dtls_secret));
 }
 
 #ifdef TLS_FORWARD_SECRECY
@@ -5884,21 +5887,38 @@ struct TLSPacket *tls_certificate_request(struct TLSContext *context) {
     return packet;
 }
 
+int __private_dtls_build_cookie(struct TLSContext *context) {
+    if ((!context->dtls_cookie) || (!context->dtls_cookie_len)) {
+        context->dtls_cookie = (unsigned char *)TLS_MALLOC(__DTLS_COOKIE_SIZE);
+        if (!context->dtls_cookie)
+            return 0;
+
+#ifdef WITH_RANDOM_DLTS_COOKIE
+        if (!tls_random(context->dtls_cookie, __DTLS_COOKIE_SIZE)) {
+            TLS_FREE(context->dtls_cookie);
+            context->dtls_cookie = NULL;
+            return 0;
+        }
+        context->dtls_cookie_len = __DTLS_COOKIE_SIZE;
+#else
+        hmac_state hmac;
+        hmac_init(&hmac, find_hash("sha256"), dtls_secret, sizeof(dtls_secret));
+        hmac_process(&hmac, context->remote_random, __TLS_CLIENT_RANDOM_SIZE);
+
+        unsigned long out_size = __DTLS_COOKIE_SIZE;
+        hmac_done(&hmac, context->dtls_cookie, &out_size);
+#endif
+    }
+    return 1;
+}
+
 struct TLSPacket *tls_build_verify_request(struct TLSContext *context) {
     if ((!context->is_server) || (!context->dtls))
         return NULL;
     
     if ((!context->dtls_cookie) || (!context->dtls_cookie_len)) {
-        context->dtls_cookie = (unsigned char *)TLS_MALLOC(__DTLS_COOKIE_SIZE);
-        if (!context->dtls_cookie)
+        if (!__private_dtls_build_cookie(context))
             return NULL;
-        
-        if (!tls_random(context->dtls_cookie, __DTLS_COOKIE_SIZE)) {
-            TLS_FREE(context->dtls_cookie);
-            context->dtls_cookie = NULL;
-            return NULL;
-        }
-        context->dtls_cookie_len = __DTLS_COOKIE_SIZE;
     }
 
     unsigned short packet_version = context->version;
@@ -6246,6 +6266,9 @@ int tls_parse_hello(struct TLSContext *context, const unsigned char *buf, int bu
             unsigned char tls_cookie_len = buf[res++];
             if (tls_cookie_len) {
                 CHECK_SIZE(tls_cookie_len, buf_len - res, TLS_NEED_MORE_DATA)
+                if ((!context->dtls_cookie_len) || (!context->dtls_cookie))
+                    __private_dtls_build_cookie(context);
+
                 if ((context->dtls_cookie_len != tls_cookie_len) || (!context->dtls_cookie)) {
                     *dtls_verified = 2;
                     __private_dtls_reset_cookie(context);
