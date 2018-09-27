@@ -1,8 +1,8 @@
 # TLSe
 
-Single C file TLS 1.2 (also 1.1 and 1.0) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. It also supports DTLS 1.2 and 1.0, over SCTP. Before using tlse.c you may want to download and compile tomcrypt; alternatively you may use libtomcrypt.c (see Compiling). I'm working at an alternative efficient RSA signing, DH and Curve25519 implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
+Single C file TLS 1.3, 1.2, 1.1 and 1.0 implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. It also supports DTLS 1.2 and 1.0, over SCTP. Before using tlse.c you may want to download and compile tomcrypt; alternatively you may use libtomcrypt.c (see Compiling). I'm working at an alternative efficient RSA signing, DH and Curve25519 implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
 
-**Beta feature**: if compiled with WITH_TLS_13 flag, TLSe supports TLS 1.3 (draft 28) server-side only (no client yet). It does not implement 0-RTT.
+**Note**: TLSe supports TLS 1.3 server-side only (no client yet). It does not implement 0-RTT.
 
 Compiling
 ----------
