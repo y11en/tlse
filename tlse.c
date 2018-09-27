@@ -1383,6 +1383,10 @@ int __private_b64_decode(const char *in_buffer, int in_buffer_size, unsigned cha
     return (int)((intptr_t)out_ptr - (intptr_t)out_buffer);
 }
 
+void dtls_reset_cookie_secret() {
+    tls_random(dtls_secret, sizeof(dtls_secret));
+}
+
 void tls_init() {
     if (dependecies_loaded)
         return;
@@ -1409,7 +1413,7 @@ void tls_init() {
 #ifdef TLS_FORWARD_SECRECY
     init_curves();
 #endif
-    tls_random(dtls_secret, sizeof(dtls_secret));
+    dtls_reset_cookie_secret();
 }
 
 #ifdef TLS_FORWARD_SECRECY
