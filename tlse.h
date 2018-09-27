@@ -19,6 +19,9 @@
         #define TLS_WITH_CHACHA20_POLY1305
     #endif
 #endif
+#ifndef NO_TLS_13
+#define WITH_TLS_13
+#endif
 // support forward secrecy (Diffie-Hellman ephemeral)
 #ifndef NO_TLS_FORWARD_SECRECY
 #define TLS_FORWARD_SECRECY
@@ -344,6 +347,12 @@ const char *tls_alpn(struct TLSContext *context);
 int tls_clear_certificates(struct TLSContext *context);
 int tls_make_ktls(struct TLSContext *context, int socket);
 int tls_unmake_ktls(struct TLSContext *context, int socket);
+/*
+  Creates a new DTLS random cookie secret to be used in HelloVerifyRequest (server-side).
+  It is recommended to call this function from time to time, to protect against some 
+  DoS attacks.
+*/
+void dtls_reset_cookie_secret();
 
 #ifdef SSL_COMPATIBLE_INTERFACE
     #define SSL_SERVER_RSA_CERT 1
