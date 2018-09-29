@@ -2931,7 +2931,21 @@ int __private_tls_expand_key(struct TLSContext *context) {
         iv_length = __TLS_CHACHA20_IV_LENGTH;
     } else
 #endif
+    if (is_aead) {
         iv_length = __TLS_AES_GCM_IV_LENGTH;
+    } else {
+        if (context->is_server) {
+            memcpy(context->crypto.ctx_remote_mac.remote_mac, &key[pos], mac_length);
+            pos += mac_length;
+            memcpy(context->crypto.ctx_local_mac.local_mac, &key[pos], mac_length);
+            pos += mac_length;
+        } else {
+            memcpy(context->crypto.ctx_local_mac.local_mac, &key[pos], mac_length);
+            pos += mac_length;
+            memcpy(context->crypto.ctx_remote_mac.remote_mac, &key[pos], mac_length);
+            pos += mac_length;
+        }
+    }
     
     clientkey = &key[pos];
     pos += key_length;
