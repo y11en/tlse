@@ -4,6 +4,10 @@ Single C file TLS 1.3, 1.2, 1.1 and 1.0 implementation, using [libtomcrypt](http
 
 **Note**: TLSe supports TLS 1.3 server-side only (no client yet). It does not implement 0-RTT.
 
+Like this project ? You may donate Bitcoin for this project at 14LqvMzFfaJ82C7wY5iavvTf9HPELYWsax
+
+![](https://raw.githubusercontent.com/eduardsui/edwork/master/bwallet.png)
+
 Compiling
 ----------
 
