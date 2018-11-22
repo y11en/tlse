@@ -7700,7 +7700,7 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
                 int i;
                 int offset = TLS_13_AES_GCM_IV_LENGTH - 8;
                 for (i = 0; i < 8; i++)
-                    iv[offset + i] = context->crypto.ctx_remote_mac.remote_aead_iv[offset + i] ^ sequence[i];
+                    iv[offset + i] = context->crypto.ctx_remote_mac.remote_iv[offset + i] ^ sequence[i];
                 pt_length = buf_len - header_size - TLS_GCM_TAG_LEN;
                 delta = 0;
             } else {
