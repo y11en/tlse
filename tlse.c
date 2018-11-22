@@ -9916,8 +9916,10 @@ int SSL_CTX_root_ca(struct TLSContext *context, const char *pem_filename) {
                         SSLUserData *ssl_data = (SSLUserData *)context->user_data;
                         if (!ssl_data) {
                             ssl_data = (SSLUserData *)TLS_MALLOC(sizeof(SSLUserData));
-                            if (!ssl_data)
+                            if (!ssl_data) {
+                                fclose(f);
                                 return TLS_NO_MEMORY;
+                            }
                             memset(ssl_data, 0, sizeof(SSLUserData));
                             context->user_data = ssl_data;
                         }
