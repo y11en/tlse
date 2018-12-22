@@ -5376,7 +5376,7 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
 }
 
 void _private_tls_set_session_id(struct TLSContext *context) {
-    if (((context->version == TLS_V13) || (context->version == DTLS_V13)) && (context->session) && (context->session_size == TLS_MAX_SESSION_ID))
+    if (((context->version == TLS_V13) || (context->version == DTLS_V13)) && (context->session_size == TLS_MAX_SESSION_ID))
         return;
     if (tls_random(context->session, TLS_MAX_SESSION_ID))
         context->session_size = TLS_MAX_SESSION_ID;
