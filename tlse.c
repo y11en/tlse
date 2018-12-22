@@ -7981,6 +7981,7 @@ int tls_parse_message(struct TLSContext *context, unsigned char *buf, int buf_le
             break;
         default:
             DEBUG_PRINT("NOT UNDERSTOOD MESSAGE TYPE: %x\n", (int)type);
+            TLS_FREE(pt);
             return TLS_NOT_UNDERSTOOD;
     }
     TLS_FREE(pt);
