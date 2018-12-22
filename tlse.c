@@ -57,6 +57,7 @@
     #include <sys/types.h>
     #include <sys/socket.h>
     #include <netinet/tcp.h>
+    #include "ktls.h"
 #endif
 
 #ifdef WITH_TLS_13
@@ -5880,7 +5881,7 @@ struct TLSPacket *tls_certificate_request(struct TLSContext *context) {
             // no DistinguishedName yet
             tls_packet_uint16(packet, 0);
         }
-        if ((!packet->broken) && (packet->buf)) {
+        if (!packet->broken) {
             int remaining = packet->len - start_len;
             int payload_pos = 6;
             if (context->dtls)
