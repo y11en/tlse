@@ -1737,14 +1737,16 @@ int _private_tls_verify_rsa(struct TLSContext *context, unsigned int hash_type, 
                 err = md5_process(&state, message, message_len);
                 if (!err)
                     err = md5_done(&state, hash);
-            }
+            } else
+                break;
             hash_idx = find_hash("sha1");
             err = sha1_init(&state);
             if (!err) {
                 err = sha1_process(&state, message, message_len);
                 if (!err)
                     err = sha1_done(&state, hash + 16);
-            }
+            } else
+                break;
             hash_len = 36;
             err = sha1_init(&state);
             if (!err) {
@@ -4806,7 +4808,7 @@ int _private_tls_prefer_ktls(struct TLSContext *context, unsigned short cipher) 
     switch (cipher) {
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
             if ((context->version == TLS_V13) || (context->version == DTLS_V13) || (context->version == TLS_V12) || (context->version == DTLS_V12)) {
-                if ((context) && (context->certificates) && (context->certificates_count) && (context->ec_private_key))
+                if ((context->certificates) && (context->certificates_count) && (context->ec_private_key))
                     return 1;
             }
             break;
@@ -5231,10 +5233,7 @@ struct TLSPacket *tls_build_server_key_exchange(struct TLSContext *context, int 
             default_dhe_g = TLS_DH_DEFAULT_G;
             key_size = TLS_DHE_KEY_SIZE / 8;
         } else {
-            if (default_dhe_p)
-                key_size = strlen(default_dhe_p);
-            else
-                key_size = strlen(default_dhe_g);
+            key_size = strlen(default_dhe_p);
         }
         if (_private_tls_dh_make_key(key_size, context->dhe, default_dhe_p, default_dhe_g, 0, 0)) {
             DEBUG_PRINT("ERROR CREATING DHE KEY\n");
@@ -5765,7 +5764,6 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
             tls_packet_uint16(packet, 0x2B);
             if (context->is_server) {
                 tls_packet_uint16(packet, 2);
-                // draft 28
                 if (context->version == TLS_V13)
                     tls_packet_uint16(packet, context->tls13_version ? context->tls13_version : TLS_V13);
                 else
@@ -8840,7 +8838,6 @@ struct TLSPacket *tls_build_certificate(struct TLSContext *context) {
 #endif
     if (!all_certificate_size) {
         DEBUG_PRINT("NO CERTIFICATE SET\n");
-        return NULL;
     }
     struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, context->version, 0);
     tls_packet_uint8(packet, 0x0B);
@@ -9671,6 +9668,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
         DEBUG_PRINT("INVALID KEY SIZE\n");
         return TLS_GENERIC_ERROR;
     }
+    int err;
     struct tls12_crypto_info_aes_gcm_128 crypto_info;
 
     crypto_info.info.version = TLS_1_2_VERSION;
@@ -9682,7 +9680,9 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
     memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
 
-    setsockopt(socket, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
+    err = setsockopt(socket, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
+    if (err)
+        return err;
 
 #ifdef TLS_RX
     // kernel 4.17 adds TLS_RX support
@@ -9697,7 +9697,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     memcpy(crypto_info_read.key, context->exportable_keys + TLS_CIPHER_AES_GCM_128_KEY_SIZE, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
     memcpy(crypto_info_read.salt, context->crypto.ctx_remote_mac.remote_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
 
-    int err = setsockopt(socket, SOL_TLS, TLS_RX, &crypto_info_read, sizeof(crypto_info_read));
+    err = setsockopt(socket, SOL_TLS, TLS_RX, &crypto_info_read, sizeof(crypto_info_read));
     if (err)
         return err;
 #endif
