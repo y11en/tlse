@@ -6610,11 +6610,11 @@ int tls_parse_certificate(struct TLSContext *context, const unsigned char *buf, 
                 // valid certificate
                 if (is_client) {
                     valid_certificate = 1;
-                    context->client_certificates = (struct TLSCertificate **)TLS_REALLOC(context->client_certificates, (context->client_certificates_count + 1) * sizeof(struct TLSCertificate));
+                    context->client_certificates = (struct TLSCertificate **)TLS_REALLOC(context->client_certificates, (context->client_certificates_count + 1) * sizeof(struct TLSCertificate *));
                     context->client_certificates[context->client_certificates_count] = cert;
                     context->client_certificates_count++;
                 } else {
-                    context->certificates = (struct TLSCertificate **)TLS_REALLOC(context->certificates, (context->certificates_count + 1) * sizeof(struct TLSCertificate));
+                    context->certificates = (struct TLSCertificate **)TLS_REALLOC(context->certificates, (context->certificates_count + 1) * sizeof(struct TLSCertificate *));
                     context->certificates[context->certificates_count] = cert;
                     context->certificates_count++;
                     if ((cert->pk) || (cert->priv))
@@ -8624,7 +8624,7 @@ int tls_load_certificates(struct TLSContext *context, const unsigned char *pem_b
                     cert->priv = NULL;
                     cert->priv_len = 0;
                 }
-                context->certificates = (struct TLSCertificate **)TLS_REALLOC(context->certificates, (context->certificates_count + 1) * sizeof(struct TLSCertificate));
+                context->certificates = (struct TLSCertificate **)TLS_REALLOC(context->certificates, (context->certificates_count + 1) * sizeof(struct TLSCertificate *));
                 context->certificates[context->certificates_count] = cert;
                 context->certificates_count++;
                 DEBUG_PRINT("Loaded certificate: %i\n", (int)context->certificates_count);
@@ -9559,7 +9559,7 @@ int tls_load_root_certificates(struct TLSContext *context, const unsigned char *
                     cert->priv = NULL;
                     cert->priv_len = 0;
                 }
-                context->root_certificates = (struct TLSCertificate **)TLS_REALLOC(context->root_certificates, (context->root_count + 1) * sizeof(struct TLSCertificate));
+                context->root_certificates = (struct TLSCertificate **)TLS_REALLOC(context->root_certificates, (context->root_count + 1) * sizeof(struct TLSCertificate *));
                 if (!context->root_certificates) {
                     context->root_count = 0;
                     return TLS_GENERIC_ERROR;
