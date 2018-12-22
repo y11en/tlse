@@ -1120,6 +1120,7 @@ static struct ECCCurveParameters secp521r1 = {
     "01FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA51868783BF2F966B7FCC0148F709A5D03BB5C9B8899C47AEBB6FB71E91386409"  // order (n)
 };
 
+#ifdef TLS_CURVE25519
 // dummy
 static struct ECCCurveParameters x25519 = {
     32,
@@ -1132,6 +1133,7 @@ static struct ECCCurveParameters x25519 = {
     "20AE19A1B8A086B4E01EDD2C7748D14C923D4D7E6D7C61B229E9C5A27ECED3D9", // Gy
     "1000000000000000000000000000000014DEF9DEA2F79CD65812631A5CF5D3ED"  // order (n)
 };
+#endif
 
 static struct ECCCurveParameters * const default_curve = &secp256r1;
 
@@ -2460,7 +2462,6 @@ int _private_tls_hkdf_label(const char *label, unsigned char label_len, const un
 }
 
 int _private_tls_hkdf_extract(unsigned int mac_length, unsigned char *output, unsigned int outlen, const unsigned char *salt, unsigned int salt_len, const unsigned char *ikm, unsigned char ikm_len) {
-    unsigned char digest_out[TLS_MAX_HASH_LEN];
     unsigned long dlen = outlen;
     static unsigned char dummy_label[1] = { 0 };
     if ((!salt) || (salt_len == 0)) {
@@ -4802,7 +4803,7 @@ int tls_cipher_is_fs(struct TLSContext *context, unsigned short cipher) {
 
 #ifdef WITH_KTLS
 int _private_tls_prefer_ktls(struct TLSContext *context, unsigned short cipher) {
-    if ((context->version == TLS_V13) || (context->version == DTLS_V13) || (context->version != TLS_V12) && (context->version != DTLS_V12))
+    if ((context->version == TLS_V13) || (context->version == DTLS_V13) || ((context->version != TLS_V12) && (context->version != DTLS_V12)))
         return 0;
 
     switch (cipher) {
@@ -6029,7 +6030,7 @@ int _private_tls_parse_key_share(struct TLSContext *context, const unsigned char
     struct ECCCurveParameters *curve = 0;
     DHKey *dhkey = 0;
     int dhe_key_size = 0;
-    const unsigned char *buffer;
+    const unsigned char *buffer = NULL;
     unsigned char *out2;
     unsigned long out_size;
     unsigned short key_size;
@@ -7144,15 +7145,11 @@ int tls_parse_finished(struct TLSContext *context, const unsigned char *buf, int
 
 #ifdef WITH_TLS_13
 int tls_parse_verify_tls13(struct TLSContext *context, const unsigned char *buf, int buf_len) {
-    int res = 0;
     CHECK_SIZE(7, buf_len, TLS_NEED_MORE_DATA)
     unsigned int size = buf[0] * 0x10000 + buf[1] * 0x100 + buf[2];
     
     if (size < 2)
         return buf_len;
-
-    unsigned char out[TLS_MAX_RSA_KEY];
-    unsigned long out_len = TLS_MAX_RSA_KEY;
 
     unsigned char signing_data[TLS_MAX_HASH_SIZE + 98];
     int signing_data_len;
@@ -8720,9 +8717,10 @@ struct TLSPacket *tls_build_certificate_verify(struct TLSContext *context) {
     unsigned int size_offset = packet->len;
     tls_packet_uint24(packet, 0);
 
-    int start_len = packet->len;    
     unsigned char out[TLS_MAX_RSA_KEY];
+#ifdef TLS_ECDSA_SUPPORTED
     unsigned long out_len = TLS_MAX_RSA_KEY;
+#endif
 
     unsigned char signing_data[TLS_MAX_HASH_SIZE + 98];
     int signing_data_len;
