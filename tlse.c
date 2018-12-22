@@ -1684,78 +1684,76 @@ int _private_tls_verify_rsa(struct TLSContext *context, unsigned int hash_type, 
         case md5:
             hash_idx = find_hash("md5");
             err = md5_init(&state);
-            if (!err) {
-                err = md5_process(&state, message, message_len);
-                if (!err)
-                    err = md5_done(&state, hash);
-            }
+            if (err) break;
+            err = md5_process(&state, message, message_len);
+            if (err) break;
+            err = md5_done(&state, hash);
+            if (err) break;
             hash_len = 16;
             break;
         case sha1:
             hash_idx = find_hash("sha1");
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash);
+            if (err) break;
             hash_len = 20;
             break;
         case sha256:
             hash_idx = find_hash("sha256");
             err = sha256_init(&state);
-            if (!err) {
-                err = sha256_process(&state, message, message_len);
-                if (!err)
-                    err = sha256_done(&state, hash);
-            }
+            if (err) break;
+            err = sha256_process(&state, message, message_len);
+            if (err) break;
+            err = sha256_done(&state, hash);
+            if (err) break;
             hash_len = 32;
             break;
         case sha384:
             hash_idx = find_hash("sha384");
             err = sha384_init(&state);
-            if (!err) {
-                err = sha384_process(&state, message, message_len);
-                if (!err)
-                    err = sha384_done(&state, hash);
-            }
+            if (err) break;
+            err = sha384_process(&state, message, message_len);
+            if (err) break;
+            err = sha384_done(&state, hash);
+            if (err) break;
             hash_len = 48;
             break;
         case sha512:
             hash_idx = find_hash("sha512");
             err = sha512_init(&state);
-            if (!err) {
-                err = sha512_process(&state, message, message_len);
-                if (!err)
-                    err = sha512_done(&state, hash);
-            }
+            if (err) break;
+            err = sha512_process(&state, message, message_len);
+            if (err) break;
+            err = sha512_done(&state, hash);
+            if (err) break;
             hash_len = 64;
             break;
 #ifdef TLS_LEGACY_SUPPORT
         case _md5_sha1:
             hash_idx = find_hash("md5");
             err = md5_init(&state);
-            if (!err) {
-                err = md5_process(&state, message, message_len);
-                if (!err)
-                    err = md5_done(&state, hash);
-            } else
-                break;
+            if (err) break;
+            err = md5_process(&state, message, message_len);
+            if (err) break;
+            err = md5_done(&state, hash);
+            if (err) break;
             hash_idx = find_hash("sha1");
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash + 16);
-            } else
-                break;
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash + 16);
+            if (err) break;
             hash_len = 36;
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash + 16);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash + 16);
+            if (err) break;
             hash_len = 36;
             break;
 #endif
@@ -1828,75 +1826,74 @@ int _private_tls_sign_rsa(struct TLSContext *context, unsigned int hash_type, co
         case md5:
             hash_idx = find_hash("md5");
             err = md5_init(&state);
-            if (!err) {
-                err = md5_process(&state, message, message_len);
-                if (!err)
-                    err = md5_done(&state, hash);
-            }
+            if (err) break;
+            err = md5_process(&state, message, message_len);
+            if (err) break;
+            err = md5_done(&state, hash);
+            if (err) break;
             hash_len = 16;
             break;
         case sha1:
             hash_idx = find_hash("sha1");
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash);
+            if (err) break;
             hash_len = 20;
             break;
         case sha256:
             hash_idx = find_hash("sha256");
             err = sha256_init(&state);
-            if (!err) {
-                err = sha256_process(&state, message, message_len);
-                if (!err)
-                    err = sha256_done(&state, hash);
-            }
+            if (err) break;
+            err = sha256_process(&state, message, message_len);
+            if (err) break;
+            err = sha256_done(&state, hash);
+            if (err) break;
             hash_len = 32;
             break;
         case sha384:
             hash_idx = find_hash("sha384");
             err = sha384_init(&state);
-            if (!err) {
-                err = sha384_process(&state, message, message_len);
-                if (!err)
-                    err = sha384_done(&state, hash);
-            }
+            if (err) break;
+            err = sha384_process(&state, message, message_len);
+            if (err) break;
+            err = sha384_done(&state, hash);
+            if (err) break;
             hash_len = 48;
             break;
         case sha512:
             hash_idx = find_hash("sha512");
             err = sha512_init(&state);
-            if (!err) {
-                err = sha512_process(&state, message, message_len);
-                if (!err)
-                    err = sha512_done(&state, hash);
-            }
+            if (err) break;
+            err = sha512_process(&state, message, message_len);
+            if (err) break;
+            err = sha512_done(&state, hash);
+            if (err) break;
             hash_len = 64;
             break;
         case _md5_sha1:
             hash_idx = find_hash("md5");
             err = md5_init(&state);
-            if (!err) {
-                err = md5_process(&state, message, message_len);
-                if (!err)
-                    err = md5_done(&state, hash);
-            }
+            err = md5_process(&state, message, message_len);
+            if (err) break;
+            err = md5_done(&state, hash);
+            if (err) break;
             hash_idx = find_hash("sha1");
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash + 16);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash + 16);
+            if (err) break;
             hash_len = 36;
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash + 16);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash + 16);
+            if (err) break;
             hash_len = 36;
             break;
     }
@@ -2111,75 +2108,75 @@ int _private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type, 
         case md5:
             hash_idx = find_hash("md5");
             err = md5_init(&state);
-            if (!err) {
-                err = md5_process(&state, message, message_len);
-                if (!err)
-                    err = md5_done(&state, hash);
-            }
+            if (err) break;
+            err = md5_process(&state, message, message_len);
+            if (err) break;
+            err = md5_done(&state, hash);
+            if (err) break;
             hash_len = 16;
             break;
         case sha1:
             hash_idx = find_hash("sha1");
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash);
+            if (err) break;
             hash_len = 20;
             break;
         case sha256:
             hash_idx = find_hash("sha256");
             err = sha256_init(&state);
-            if (!err) {
-                err = sha256_process(&state, message, message_len);
-                if (!err)
-                    err = sha256_done(&state, hash);
-            }
+            if (err) break;
+            err = sha256_process(&state, message, message_len);
+            if (err) break;
+            err = sha256_done(&state, hash);
+            if (err) break;
             hash_len = 32;
             break;
         case sha384:
             hash_idx = find_hash("sha384");
             err = sha384_init(&state);
-            if (!err) {
-                err = sha384_process(&state, message, message_len);
-                if (!err)
-                    err = sha384_done(&state, hash);
-            }
+            if (err) break;
+            err = sha384_process(&state, message, message_len);
+            if (err) break;
+            err = sha384_done(&state, hash);
+            if (err) break;
             hash_len = 48;
             break;
         case sha512:
             hash_idx = find_hash("sha512");
             err = sha512_init(&state);
-            if (!err) {
-                err = sha512_process(&state, message, message_len);
-                if (!err)
-                    err = sha512_done(&state, hash);
-            }
+            if (err) break;
+            err = sha512_process(&state, message, message_len);
+            if (err) break;
+            err = sha512_done(&state, hash);
+            if (err) break;
             hash_len = 64;
             break;
         case _md5_sha1:
             hash_idx = find_hash("md5");
             err = md5_init(&state);
-            if (!err) {
-                err = md5_process(&state, message, message_len);
-                if (!err)
-                    err = md5_done(&state, hash);
-            }
+            if (err) break;
+            err = md5_process(&state, message, message_len);
+            if (err) break;
+            err = md5_done(&state, hash);
+            if (err) break;
             hash_idx = find_hash("sha1");
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash + 16);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash + 16);
+            if (err) break;
             hash_len = 36;
             err = sha1_init(&state);
-            if (!err) {
-                err = sha1_process(&state, message, message_len);
-                if (!err)
-                    err = sha1_done(&state, hash + 16);
-            }
+            if (err) break;
+            err = sha1_process(&state, message, message_len);
+            if (err) break;
+            err = sha1_done(&state, hash + 16);
+            if (err) break;
             hash_len = 36;
             break;
     }
