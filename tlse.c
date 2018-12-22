@@ -1658,14 +1658,14 @@ int _private_tls_verify_rsa(struct TLSContext *context, unsigned int hash_type, 
     int err;
     
     if (context->is_server) {
-        if ((!len) || (!context) || (!context->client_certificates) || (!context->client_certificates_count) || (!context->client_certificates[0]) ||
+        if ((!len) || (!context->client_certificates) || (!context->client_certificates_count) || (!context->client_certificates[0]) ||
             (!context->client_certificates[0]->der_bytes) || (!context->client_certificates[0]->der_len)) {
             DEBUG_PRINT("No client certificate set\n");
             return TLS_GENERIC_ERROR;
         }
         err = rsa_import(context->client_certificates[0]->der_bytes, context->client_certificates[0]->der_len, &key);
     } else {
-        if ((!len) || (!context) || (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]) ||
+        if ((!len) || (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]) ||
             (!context->certificates[0]->der_bytes) || (!context->certificates[0]->der_len)) {
             DEBUG_PRINT("No server certificate set\n");
             return TLS_GENERIC_ERROR;
@@ -2253,14 +2253,14 @@ int _private_tls_verify_ecdsa(struct TLSContext *context, unsigned int hash_type
         curve_hint = context->curve;
 
     if (context->is_server) {
-        if ((!len) || (!context) || (!context->client_certificates) || (!context->client_certificates_count) || (!context->client_certificates[0]) ||
+        if ((!len) || (!context->client_certificates) || (!context->client_certificates_count) || (!context->client_certificates[0]) ||
             (!context->client_certificates[0]->pk) || (!context->client_certificates[0]->pk_len) || (!curve_hint)) {
             DEBUG_PRINT("No client certificate set\n");
             return TLS_GENERIC_ERROR;
         }
         err = _private_tls_ecc_import_pk(context->client_certificates[0]->pk, context->client_certificates[0]->pk_len, &key, (ltc_ecc_set_type *)&curve_hint->dp);
     } else {
-        if ((!len) || (!context) || (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]) ||
+        if ((!len) || (!context->certificates) || (!context->certificates_count) || (!context->certificates[0]) ||
             (!context->certificates[0]->pk) || (!context->certificates[0]->pk_len) || (!curve_hint)) {
             DEBUG_PRINT("No server certificate set\n");
             return TLS_GENERIC_ERROR;
@@ -3021,7 +3021,7 @@ int _private_tls_compute_key(struct TLSContext *context, unsigned int key_len) {
     if ((context->version == TLS_V13) || (context->version == DTLS_V13))
         return 0;
 #endif
-    if ((!context) || (!context->premaster_key) || (!context->premaster_key_len) || (key_len < 48)) {
+    if ((!context->premaster_key) || (!context->premaster_key_len) || (key_len < 48)) {
         DEBUG_PRINT("CANNOT COMPUTE MASTER SECRET\n");
         return 0;
     }
