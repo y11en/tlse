@@ -2082,7 +2082,6 @@ int _private_tls_sign_ecdsa(struct TLSContext *context, unsigned int hash_type, 
             break;
         default:
             DEBUG_PRINT("UNSUPPORTED CURVE\n");
-            return TLS_GENERIC_ERROR;
     }
     
     if (!curve)
