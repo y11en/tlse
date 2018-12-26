@@ -1233,9 +1233,9 @@ struct TLSContext {
     unsigned char *finished_key;
     unsigned char *remote_finished_key;
     unsigned char *server_finished_hash;
+#endif
 #ifdef TLS_CURVE25519
     unsigned char *client_secret;
-#endif
 #endif
     char **alpn;
     unsigned char alpn_count;
@@ -4605,9 +4605,9 @@ void tls_destroy_context(struct TLSContext *context) {
     TLS_FREE(context->finished_key);
     TLS_FREE(context->remote_finished_key);
     TLS_FREE(context->server_finished_hash);
+#endif
 #ifdef TLS_CURVE25519
     TLS_FREE(context->client_secret);
-#endif
 #endif
     TLS_FREE(context);
 }
@@ -5189,7 +5189,18 @@ struct TLSPacket *tls_build_client_key_exchange(struct TLSContext *context) {
             }
             tls_packet_uint8(packet, out_len);
             tls_packet_append(packet, out, out_len);
+        } 
+#ifdef TLS_CURVE25519
+        else
+        if ((context->curve == &x25519) && (context->client_secret)) {
+            static const unsigned char basepoint[32] = {9};
+            unsigned char shared_key[32];
+            curve25519(shared_key, context->client_secret, basepoint);
+            tls_packet_uint24(packet, 32 + 1);
+            tls_packet_uint8(packet, 32);
+            tls_packet_append(packet, shared_key, 32);
         }
+#endif
         _private_tls_compute_key(context, 48);
     } else
 #endif
@@ -6991,6 +7002,11 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
                 case 25:
                     curve = &secp521r1;
                     break;
+#ifdef TLS_CURVE25519
+                case 29:
+                    curve = &x25519;
+                    break;
+#endif
                 default:
                     DEBUG_PRINT("UNSUPPORTED CURVE\n");
                     return TLS_GENERIC_ERROR;
@@ -7098,24 +7114,55 @@ int tls_parse_server_key_exchange(struct TLSContext *context, const unsigned cha
         }
     } else
     if ((ephemeral == 2) && (curve) && (pk_key) && (key_size)) {
-        tls_init();
-        _private_tls_ecc_dhe_create(context);
+#ifdef TLS_CURVE25519
+        if (curve == &x25519) {
+            if (key_size != 32) {
+                DEBUG_PRINT("INVALID X25519 PUBLIC SIZE");
+                return TLS_GENERIC_ERROR;
+            }
+
+            TLS_FREE(context->client_secret);
+            context->client_secret = (unsigned char *)TLS_MALLOC(32);
+            if (!context->client_secret) {
+                DEBUG_PRINT("ERROR IN TLS_MALLOC");
+                return TLS_GENERIC_ERROR;
+            }
+            
+            tls_random(context->client_secret, 32);
+
+            context->client_secret[0] &= 248;
+            context->client_secret[31] &= 127;
+            context->client_secret[31] |= 64;
+
+            TLS_FREE(context->premaster_key);
+            context->premaster_key = (unsigned char *)TLS_MALLOC(32);
+            if (!context->premaster_key)
+                return TLS_GENERIC_ERROR;
+
+            curve25519(context->premaster_key, context->client_secret, pk_key);
+            context->premaster_key_len = 32;
+        } else
+#endif
+        {
+            tls_init();
+            _private_tls_ecc_dhe_create(context);
         
-        ltc_ecc_set_type *dp = (ltc_ecc_set_type *)&curve->dp;
-        if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, dp)) {
-            TLS_FREE(context->ecc_dhe);
-            context->ecc_dhe = NULL;
-            DEBUG_PRINT("Error generating ECC key\n");
-            return TLS_GENERIC_ERROR;
+            ltc_ecc_set_type *dp = (ltc_ecc_set_type *)&curve->dp;
+            if (ecc_make_key_ex(NULL, find_prng("sprng"), context->ecc_dhe, dp)) {
+                TLS_FREE(context->ecc_dhe);
+                context->ecc_dhe = NULL;
+                DEBUG_PRINT("Error generating ECC key\n");
+                return TLS_GENERIC_ERROR;
+            }
+        
+            TLS_FREE(context->premaster_key);
+            context->premaster_key_len = 0;
+        
+            unsigned int out_len = 0;
+            context->premaster_key = _private_tls_decrypt_ecc_dhe(context, pk_key, key_size, &out_len, 0);
+            if (context->premaster_key)
+                context->premaster_key_len = out_len;
         }
-        
-        TLS_FREE(context->premaster_key);
-        context->premaster_key_len = 0;
-        
-        unsigned int out_len = 0;
-        context->premaster_key = _private_tls_decrypt_ecc_dhe(context, pk_key, key_size, &out_len, 0);
-        if (context->premaster_key)
-            context->premaster_key_len = out_len;
     }
 #endif
     return res;
