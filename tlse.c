@@ -5199,6 +5199,8 @@ struct TLSPacket *tls_build_client_key_exchange(struct TLSContext *context) {
             tls_packet_uint24(packet, 32 + 1);
             tls_packet_uint8(packet, 32);
             tls_packet_append(packet, shared_key, 32);
+            TLS_FREE(context->client_secret);
+            context->client_secret = NULL;
         }
 #endif
         _private_tls_compute_key(context, 48);
