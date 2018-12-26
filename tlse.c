@@ -63,13 +63,11 @@
     #include "ktls.h"
 #endif
 
-#ifdef WITH_TLS_13
-    #define TLS_CURVE25519
+#include "tlse.h"
+#ifdef TLS_CURVE25519
     #include "curve25519.c"
 #endif
 // using ChaCha20 implementation by D. J. Bernstein
-
-#include "tlse.h"
 
 #ifndef TLS_FORWARD_SECRECY
 #undef TLS_ECDSA_SUPPORTED
@@ -5735,10 +5733,10 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
 #ifdef WITH_TLS_13
                 if ((!context->is_server) && ((context->version == TLS_V13) || (context->version == DTLS_V13))) {
 #ifdef TLS_CURVE25519
-                    extension_len += 62;
+                    extension_len += 70;
 #else
                     // secp256r1 produces 65 bytes export
-                    extension_len += 95;
+                    extension_len += 103;
 #endif
                 }
 #endif
@@ -5766,7 +5764,11 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
                 tls_packet_uint16(packet, 6);
                 tls_packet_uint16(packet, secp256r1.iana);
                 tls_packet_uint16(packet, secp384r1.iana);
+#ifdef TLS_CURVE25519
+                tls_packet_uint16(packet, x25519.iana);
+#else
                 tls_packet_uint16(packet, secp224r1.iana);
+#endif
 #endif
 #endif
                 if (alpn_len) {
@@ -5878,17 +5880,19 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
             if (!context->is_server) {
                 // signature algorithms
                 tls_packet_uint16(packet, 0x0D);
-                tls_packet_uint16(packet, 8);
+                tls_packet_uint16(packet, 24);
+                tls_packet_uint16(packet, 22);
                 tls_packet_uint16(packet, 0x0403);
                 tls_packet_uint16(packet, 0x0503);
                 tls_packet_uint16(packet, 0x0603);
-                tls_packet_uint16(packet, 0x0803);
-
-                // supported groups
-                tls_packet_uint16(packet, 0x32);
-                tls_packet_uint16(packet, 4);
-                tls_packet_uint16(packet, 0x001D);
-                tls_packet_uint16(packet, 0x0017);
+                tls_packet_uint16(packet, 0x0804);
+                tls_packet_uint16(packet, 0x0805);
+                tls_packet_uint16(packet, 0x0806);
+                tls_packet_uint16(packet, 0x0401);
+                tls_packet_uint16(packet, 0x0501);
+                tls_packet_uint16(packet, 0x0601);
+                tls_packet_uint16(packet, 0x0203);
+                tls_packet_uint16(packet, 0x0201);
             }
         }
 #endif
