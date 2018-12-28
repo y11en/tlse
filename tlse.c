@@ -9985,6 +9985,13 @@ void tls_print_certificate(const char *fname) {
 }
 #endif
 
+int tls_remote_error(struct TLSContext *context) {
+    if (!context)
+        return TLS_GENERIC_ERROR;
+
+    return context->error_code;
+}
+
 #ifdef SSL_COMPATIBLE_INTERFACE
 
 int  SSL_library_init() {
