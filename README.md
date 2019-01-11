@@ -1,8 +1,8 @@
 # TLSe
 
-Single C file TLS 1.3, 1.2, 1.1 and 1.0 implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt")  as crypto library. It also supports DTLS 1.2 and 1.0, over SCTP. Before using tlse.c you may want to download and compile tomcrypt; alternatively you may use libtomcrypt.c (see Compiling). I'm working at an alternative efficient RSA signing, DH and Curve25519 implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
+Single C file TLS 1.3, 1.2, 1.1 and 1.0(without the weak ciphers) implementation, using [libtomcrypt](https://github.com/libtom/libtomcrypt "libtomcrypt") as crypto library. It also supports DTLS 1.2 and 1.0. Before using tlse.c you may want to download and compile tomcrypt; alternatively you may use libtomcrypt.c (see Compiling). I'm working at an alternative efficient RSA signing, DH and Curve25519 implementation, to allow the compilation, alternatively, without tomcrypt, on devices where memory and code size is an issue.
 
-**Note**: ~~TLSe supports TLS 1.3 server-side only (no client yet).~~ It does not implement 0-RTT. Client-side TLS 1.3 support is experimental.
+**Note**: It does not implement 0-RTT. Client-side TLS 1.3 support is experimental. Also, RSA key exchange is disabled by default. If you wish to use them, you must compile wiht -DTLS_NO_ROBOT_MITIGATION.
 
 Like this project ? You may donate Bitcoin for this project at 14LqvMzFfaJ82C7wY5iavvTf9HPELYWsax
 
@@ -48,7 +48,10 @@ Features
 The main feature of this implementation is the ability to serialize TLS context, via tls_export_context and re-import it, via tls_import_context in another pre-forked worker process (socket descriptor may be sent via sendmsg).
 
 For now it supports TLS 1.2, TLS 1.1 + 1.0 (when TLS_LEGACY_SUPPORT is defined / default is on), RSA, ECDSA, DHE, ECDHE  ciphers:
-`TLS_RSA_WITH_AES_128_CBC_SHA, TLS_RSA_WITH_AES_256_CBC_SHA, TLS_RSA_WITH_AES_128_CBC_SHA256, TLS_RSA_WITH_AES_256_CBC_SHA256, TLS_RSA_WITH_AES_128_GCM_SHA256, TLS_RSA_WITH_AES_256_GCM_SHA384, TLS_DHE_RSA_WITH_AES_128_CBC_SHA, TLS_DHE_RSA_WITH_AES_256_CBC_SHA, TLS_DHE_RSA_WITH_AES_128_CBC_SHA256, TLS_DHE_RSA_WITH_AES_256_CBC_SHA256, TLS_DHE_RSA_WITH_AES_128_GCM_SHA256, TLS_DHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384`.
+``TLS_DHE_RSA_WITH_AES_128_CBC_SHA, TLS_DHE_RSA_WITH_AES_256_CBC_SHA, TLS_DHE_RSA_WITH_AES_128_CBC_SHA256, TLS_DHE_RSA_WITH_AES_256_CBC_SHA256, TLS_DHE_RSA_WITH_AES_128_GCM_SHA256, TLS_DHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384, TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256` and `TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384``.
+
+The following ciphers are supported but disabled by default:
+``TLS_RSA_WITH_AES_128_CBC_SHA, TLS_RSA_WITH_AES_256_CBC_SHA, TLS_RSA_WITH_AES_128_CBC_SHA256, TLS_RSA_WITH_AES_256_CBC_SHA256, TLS_RSA_WITH_AES_128_GCM_SHA256, TLS_RSA_WITH_AES_256_GCM_SHA384``. To enable these ciphers, TLSe must be compiled with ``-DNO_TLS_ROBOT_MITIGATION``. Note that enabling RSA encryption will expose the server to the [Return Of Bleichenbacher's Oracle Threat](https://robotattack.org/).
 
 TLSe now supports ChaCha20/Poly1305 ciphers: `TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`,  `TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256` and `TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256`. These ciphers are enabled by default.
 
@@ -77,7 +80,7 @@ After compiling the examples, in the working directory, you should put fullchain
 Important security note
 ----------
 
-Note that for DTLS, it doesn't implement a state machine, so using this DTLS implementation with UDP (server) may expose your server to DoS attack. The DTLS implementation in this library is meant to be used EXCLUSIVELY over SCTP sockets.
+Note that for DTLS, it doesn't implement a state machine, so using this DTLS implementation with UDP (server) may expose your server to DoS attack.
 
 License
 ----------
