@@ -34,7 +34,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <wincrypt.h>
-#define strcasecmp stricmp
+#ifndef strcasecmp
+    #define strcasecmp stricmp
+#endif
 #else
 // hton* and ntoh* functions
 #include <arpa/inet.h>
@@ -141,7 +143,8 @@
 #define TLS_SHA1_MAC_SIZE           20
 #define TLS_SHA384_MAC_SIZE         48
 #define TLS_MAX_MAC_SIZE            TLS_SHA384_MAC_SIZE
-#define TLS_MAX_KEY_EXPANSION_SIZE  192 // 160
+ // 160
+#define TLS_MAX_KEY_EXPANSION_SIZE  192
 // 512bits (sha256) = 64 bytes
 #define TLS_MAX_HASH_LEN            64
 #define TLS_AES_IV_LENGTH           16
@@ -158,9 +161,11 @@
 #define DTLS_COOKIE_SIZE          32
 
 #define TLS_MAX_SHA_SIZE 48
-#define TLS_V11_HASH_SIZE 36      // 16(md5) + 20(sha1)
+// 16(md5) + 20(sha1)
+#define TLS_V11_HASH_SIZE 36
 #define TLS_MAX_HASH_SIZE TLS_MAX_SHA_SIZE
-#define TLS_MAX_RSA_KEY   2048    // 16kbits
+// 16(md5) + 20(sha1)
+#define TLS_MAX_RSA_KEY   2048
 
 #define TLS_MAXTLS_APP_SIZE      0x4000
 // max 1 second sleep
@@ -3186,7 +3191,7 @@ int tls_certificate_valid_subject_name(const unsigned char *cert_subject, const 
                 return 0;
         }
         if (match) {
-            unsigned long offset = (unsigned long)match - (unsigned long)subject;
+            uintptr_t offset = (uintptr_t)match - (uintptr_t)subject;
             if (offset) {
                 // check for foo.*.domain.com against *.domain.com (invalid)
                 if (memchr(subject, '.', offset))
@@ -10109,7 +10114,7 @@ int SSL_get_error(struct TLSContext *context, int ret) {
 
 int SSL_set_fd(struct TLSContext *context, int socket) {
     if (!context)
-        return TLS_GENERIC_ERROR;
+        return 0;
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
     if (!ssl_data) {
         ssl_data = (SSLUserData *)TLS_MALLOC(sizeof(SSLUserData));
@@ -10119,7 +10124,7 @@ int SSL_set_fd(struct TLSContext *context, int socket) {
         context->user_data = ssl_data;
     }
     ssl_data->fd = socket;
-    return 0;
+    return 1;
 }
 
 void *SSL_set_userdata(struct TLSContext *context, void *data) {
