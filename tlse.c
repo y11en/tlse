@@ -1579,6 +1579,12 @@ unsigned char *_private_tls_decrypt_rsa(struct TLSContext *context, const unsign
         TLS_FREE(out);
         return NULL;
     }
+    if (out_size != 48) {
+        out_size = 48;
+        // generate a random secret and continue (ROBOT fix)
+        tls_random(out, out_size);
+        *(unsigned short *)out = htons(context->version);
+    }
     *size = (unsigned int)out_size;
     return out;
 }
