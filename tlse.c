@@ -5430,8 +5430,11 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
     } else
     if ((!context->is_server) || ((context->version != TLS_V13) && (context->version != DTLS_V13)))
 #endif
-    if (!tls_random(context->local_random, TLS_SERVER_RANDOM_SIZE))
+    if (!tls_random(context->local_random, context->is_server ? TLS_SERVER_RANDOM_SIZE : TLS_CLIENT_RANDOM_SIZE))
         return NULL;
+    if (!context->is_server)
+        *(unsigned int *)context->local_random = htonl((unsigned int)time(NULL));
+
     if ((context->is_server) && (tls13_downgrade)) {
         if ((tls13_downgrade == TLS_V12) || (tls13_downgrade == DTLS_V12))
             memcpy(context->local_random + TLS_SERVER_RANDOM_SIZE - 8, "DOWNGRD\x01", 8);
