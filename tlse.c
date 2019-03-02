@@ -1250,6 +1250,9 @@ struct TLSContext {
     char *negotiated_alpn;
     unsigned int sleep_until;
     unsigned short tls13_version;
+#ifdef TLS_12_FALSE_START
+    unsigned char false_start;
+#endif
 };
 
 struct TLSPacket {
@@ -3746,7 +3749,11 @@ void tls_packet_update(struct TLSPacket *packet) {
                     if ((handshake_type != 0x00) && (handshake_type != 0x03))
                         _private_tls_update_hash(packet->context, packet->buf + header_size, packet->len - header_size - footer_size);
                 }
+#ifdef TLS_12_FALSE_START
+                if (((packet->context->cipher_spec_set) || (packet->context->false_start)) && (packet->context->crypto.created)) {
+#else
                 if ((packet->context->cipher_spec_set) && (packet->context->crypto.created)) {
+#endif
                     int block_size = TLS_AES_BLOCK_SIZE;
                     int mac_size = 0;
                     unsigned int length = 0;
@@ -4354,6 +4361,12 @@ int tls_established(struct TLSContext *context) {
         
         if (context->connection_status == 0xFF)
             return 1;
+
+#ifdef TLS_12_FALSE_START
+        // allow false start
+        if ((!context->is_server) && (context->version == TLS_V12) && (context->false_start))
+            return 1;
+#endif
     }
     return 0;
 }
@@ -7730,6 +7743,10 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 DEBUG_PRINT("<= Building CLIENT FINISHED\n");
                 _private_tls_write_packet(tls_build_finished(context));
                 context->cipher_spec_set = 0;
+#ifdef TLS_12_FALSE_START
+                if ((!context->is_server) && (context->version == TLS_V12))
+                    context->false_start = 1;
+#endif
                 break;
             case 2:
                 // server handshake
@@ -9287,8 +9304,13 @@ int tls_client_connect(struct TLSContext *context) {
 int tls_write(struct TLSContext *context, const unsigned char *data, unsigned int len) {
     if (!context)
         return TLS_GENERIC_ERROR;
+#ifdef TLS_12_FALSE_START
+    if ((context->connection_status != 0xFF) && ((context->is_server) || (context->version != TLS_V12) || (context->critical_error) || (!context->false_start)))
+        return TLS_UNEXPECTED_MESSAGE;
+#else
     if (context->connection_status != 0xFF)
         return TLS_UNEXPECTED_MESSAGE;
+#endif
     if (len > TLS_MAXTLS_APP_SIZE)
         len = TLS_MAXTLS_APP_SIZE;
     int actually_written = _private_tls_write_packet(tls_build_message(context, data, len));
