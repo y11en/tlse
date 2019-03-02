@@ -7744,8 +7744,25 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                 _private_tls_write_packet(tls_build_finished(context));
                 context->cipher_spec_set = 0;
 #ifdef TLS_12_FALSE_START
-                if ((!context->is_server) && (context->version == TLS_V12))
-                    context->false_start = 1;
+                if ((!context->is_server) && (context->version == TLS_V12)) {
+                    // https://tools.ietf.org/html/rfc7918
+                    // 5.1.  Symmetric Cipher
+                    // Clients MUST NOT use the False Start protocol modification in a
+                    // handshake unless the cipher suite uses a symmetric cipher that is
+                    // considered cryptographically strong.
+                    switch (context->cipher) {
+                        case TLS_RSA_WITH_AES_128_GCM_SHA256:
+                        case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+                        case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
+                        case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+                        case TLS_RSA_WITH_AES_256_GCM_SHA384:
+                        case TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+                        case TLS_DHE_RSA_WITH_AES_256_GCM_SHA384:
+                        case TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+                            context->false_start = 1;
+                            break;
+                    }
+                }
 #endif
                 break;
             case 2:
