@@ -10256,7 +10256,7 @@ void SSL_CTX_set_verify(struct TLSContext *context, int mode, tls_validation_fun
 
 int _private_tls_safe_read(struct TLSContext *context, void *buffer, int buf_size) {
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
-    if ((!ssl_data) || (ssl_data->fd <= 0))
+    if ((!ssl_data) || (ssl_data->fd < 0))
         return TLS_GENERIC_ERROR;
 
     SOCKET_RECV_CALLBACK read_cb = (SOCKET_RECV_CALLBACK)ssl_data->recv;
@@ -10269,7 +10269,7 @@ int SSL_accept(struct TLSContext *context) {
     if (!context)
         return TLS_GENERIC_ERROR;
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
-    if ((!ssl_data) || (ssl_data->fd <= 0))
+    if ((!ssl_data) || (ssl_data->fd < 0))
         return TLS_GENERIC_ERROR;
     if (tls_established(context))
         return 1;
@@ -10294,7 +10294,7 @@ int SSL_connect(struct TLSContext *context) {
     if (!context)
         return TLS_GENERIC_ERROR;
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
-    if ((!ssl_data) || (ssl_data->fd <= 0) || (context->critical_error))
+    if ((!ssl_data) || (ssl_data->fd < 0) || (context->critical_error))
         return TLS_GENERIC_ERROR;
     int res = tls_client_connect(context);
     if (res < 0)
@@ -10324,7 +10324,7 @@ int SSL_shutdown(struct TLSContext *context) {
     if (!context)
         return TLS_GENERIC_ERROR;
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
-    if ((!ssl_data) || (ssl_data->fd <= 0))
+    if ((!ssl_data) || (ssl_data->fd < 0))
         return TLS_GENERIC_ERROR;
     
     tls_close_notify(context);
@@ -10335,7 +10335,7 @@ int SSL_write(struct TLSContext *context, const void *buf, unsigned int len) {
     if (!context)
         return TLS_GENERIC_ERROR;
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
-    if ((!ssl_data) || (ssl_data->fd <= 0))
+    if ((!ssl_data) || (ssl_data->fd < 0))
         return TLS_GENERIC_ERROR;
     
     int written_size = tls_write(context, (const unsigned char *)buf, len);
@@ -10355,7 +10355,7 @@ int SSL_read(struct TLSContext *context, void *buf, unsigned int len) {
         return tls_read(context, (unsigned char *)buf, len);
 
     SSLUserData *ssl_data = (SSLUserData *)context->user_data;
-    if ((!ssl_data) || (ssl_data->fd <= 0) || (context->critical_error))
+    if ((!ssl_data) || (ssl_data->fd < 0) || (context->critical_error))
         return TLS_GENERIC_ERROR;
     if (tls_established(context) != 1)
         return TLS_GENERIC_ERROR;
