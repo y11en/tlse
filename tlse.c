@@ -9852,7 +9852,11 @@ int tls_load_root_certificates(struct TLSContext *context, const unsigned char *
             break;
         struct TLSCertificate *cert = asn1_parse(NULL, data, len, 0);
         if (cert) {
-            if (cert->version == 2) {
+            if ((cert->version == 2) 
+#ifdef TLS_X509_V1_SUPPORT
+                || (cert->version == 0)
+#endif
+            ) {
                 if (cert->priv) {
                     DEBUG_PRINT("WARNING - parse error (private key encountered in certificate)\n");
                     TLS_FREE(cert->priv);
@@ -10085,6 +10089,21 @@ int _tls_ssl_private_send_pending(int client_sock, struct TLSContext *context) {
         else
             res = send(client_sock, (char *)&out_buffer[out_buffer_index], out_buffer_len, 0);
         if (res <= 0) {
+            if ((!write_cb) && (res < 0)) {
+#ifdef _WIN32
+                if (WSAGetLastError() == WSAEWOULDBLOCK) {
+                    context->tls_buffer_len = out_buffer_len;
+                    memmove(context->tls_buffer, out_buffer + out_buffer_index, out_buffer_len);
+                    return res;
+                }
+#else
+                if ((errno == EAGAIN) || (errno == EINTR)) {
+                    context->tls_buffer_len = out_buffer_len;
+                    memmove(context->tls_buffer, out_buffer + out_buffer_index, out_buffer_len);
+                    return res;
+                }
+#endif
+            }
             send_res = res;
             break;
         }
