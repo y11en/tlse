@@ -44,6 +44,7 @@
 // hton* and ntoh* functions
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <errno.h>
 #endif
 
 #ifdef TLS_AMALGAMATION
