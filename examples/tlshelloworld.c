@@ -5,7 +5,6 @@
 #ifdef _WIN32
     #include <winsock2.h>
     #define socklen_t int
-    #define sleep(x)    Sleep(x*1000)
 #else
     #include <sys/socket.h>
     #include <arpa/inet.h>
