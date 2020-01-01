@@ -3997,6 +3997,9 @@ int tls_packet_uint24(struct TLSPacket *packet, unsigned int i) {
 }
 
 int tls_random(unsigned char *key, int len) {
+#ifdef TLS_USE_RANDOM_SOURCE
+    TLS_USE_RANDOM_SOURCE(key, len);
+#else
 #ifdef __APPLE__
     for (int i = 0; i < len; i++) {
         unsigned int v = arc4random() % 0x100;
@@ -4021,6 +4024,7 @@ int tls_random(unsigned char *key, int len) {
         if (key_len == len)
             return 1;
     }
+#endif
 #endif
 #endif
     return 0;
