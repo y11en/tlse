@@ -6170,7 +6170,7 @@ int _private_tls_parse_key_share(struct TLSContext *context, const unsigned char
     const unsigned char *buffer = NULL;
     unsigned char *out2;
     unsigned long out_size;
-    unsigned short key_size;
+    unsigned short key_size = 0;
     while (buf_len >= 4) {
         unsigned short named_group = ntohs(*(unsigned short *)&buf[i]);
         i += 2;
