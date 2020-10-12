@@ -7339,32 +7339,32 @@ int tls_parse_finished(struct TLSContext *context, const unsigned char *buf, int
             DEBUG_DUMP_HEX_LABEL("VERIFY", out, size);
             return TLS_NOT_VERIFIED;
         }
+#ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
+        if (size) {
+            if (context->is_server) {
+                TLS_FREE(context->verify_data);
+                context->verify_data = (unsigned char *)TLS_MALLOC(size);
+                if (context->verify_data) {
+                    memcpy(context->verify_data, out, size);
+                    context->verify_len = size;
+                }
+            } else {
+                // concatenate client verify and server verify
+                context->verify_data = (unsigned char *)TLS_REALLOC(context->verify_data, size);
+                if (context->verify_data) {
+                    memcpy(context->verify_data + context->verify_len, out, size);
+                    context->verify_len += size;
+                } else
+                    context->verify_len = 0;
+            }
+        }
+#endif
         TLS_FREE(out);
     }
     if (context->is_server)
         *write_packets = 3;
     else
         context->connection_status = 0xFF;
-#ifdef TLS_ACCEPT_SECURE_RENEGOTIATION
-    if (size) {
-        if (context->is_server) {
-            TLS_FREE(context->verify_data);
-            context->verify_data = (unsigned char *)TLS_MALLOC(size);
-            if (context->verify_data) {
-                memcpy(context->verify_data, out, size);
-                context->verify_len = size;
-            }
-        } else {
-            // concatenate client verify and server verify
-            context->verify_data = (unsigned char *)TLS_REALLOC(context->verify_data, size);
-            if (context->verify_data) {
-                memcpy(context->verify_data + context->verify_len, out, size);
-                context->verify_len += size;
-            } else
-                context->verify_len = 0;
-        }
-    }
-#endif
     res += size;
     return res;
 }
