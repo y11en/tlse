@@ -7577,6 +7577,9 @@ int tls_parse_payload(struct TLSContext *context, const unsigned char *buf, int 
                             // empty certificates are permitted for client
                             if (payload_res <= 0)
                                 payload_res = 1;
+                        } else {
+                            if ((certificate_verify) && (context->certificates_count))
+                                certificate_verify_alert = certificate_verify(context, context->certificates, context->certificates_count);
                         }
                     } else
                         payload_res = TLS_UNEXPECTED_MESSAGE;
