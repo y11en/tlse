@@ -8907,10 +8907,17 @@ int tls_load_certificates(struct TLSContext *context, const unsigned char *pem_b
                     cert->priv = NULL;
                     cert->priv_len = 0;
                 }
-                context->certificates = (struct TLSCertificate **)TLS_REALLOC(context->certificates, (context->certificates_count + 1) * sizeof(struct TLSCertificate *));
-                context->certificates[context->certificates_count] = cert;
-                context->certificates_count++;
-                DEBUG_PRINT("Loaded certificate: %i\n", (int)context->certificates_count);
+                if (context->is_server) {
+                    context->certificates = (struct TLSCertificate **)TLS_REALLOC(context->certificates, (context->certificates_count + 1) * sizeof(struct TLSCertificate *));
+                    context->certificates[context->certificates_count] = cert;
+                    context->certificates_count++;
+                    DEBUG_PRINT("Loaded certificate: %i\n", (int)context->certificates_count);
+                } else {
+                    context->client_certificates = (struct TLSCertificate **)TLS_REALLOC(context->client_certificates, (context->client_certificates_count + 1) * sizeof(struct TLSCertificate *));
+                    context->client_certificates[context->client_certificates_count] = cert;
+                    context->client_certificates_count++;
+                    DEBUG_PRINT("Loaded client certificate: %i\n", (int)context->client_certificates_count);
+                }
             } else {
                 DEBUG_PRINT("WARNING - certificate version error (v%i)\n", (int)cert->version);
                 tls_destroy_certificate(cert);
