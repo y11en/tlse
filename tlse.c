@@ -3469,7 +3469,7 @@ void tls_certificate_set_serial(struct TLSCertificate *cert, const unsigned char
         cert->serial_len = len;
 }
 
-void tls_certificate_set_algorithm(unsigned int *algorithm, const unsigned char *val, int len) {
+void tls_certificate_set_algorithm(struct TLSContext *context, unsigned int *algorithm, const unsigned char *val, int len) {
     if ((len == 7) && (_is_oid(val, TLS_EC_PUBLIC_KEY_OID, 7))) {
         *algorithm = TLS_EC_PUBLIC_KEY;
         return;
@@ -3549,6 +3549,11 @@ void tls_certificate_set_algorithm(unsigned int *algorithm, const unsigned char 
     if (_is_oid(val, TLS_RSA_SIGN_MD5_OID, 9)) {
         *algorithm = TLS_RSA_SIGN_MD5;
         return;
+    }
+    // client should fail on unsupported signature
+    if (!context->is_server) {
+        DEBUG_PRINT("UNSUPPORTED SIGNATURE ALGORITHM\n");
+        context->critical_error = 1;
     }
 }
 
@@ -8741,13 +8746,13 @@ int _private_asn1_parse(struct TLSContext *context, struct TLSCertificate *cert,
                     if (_is_field(fields, pk_id)) {
 #ifdef TLS_ECDSA_SUPPORTED
                         if ((length == 8) || (length == 5))
-                            tls_certificate_set_algorithm(&cert->ec_algorithm, &buffer[pos], length);
+                            tls_certificate_set_algorithm(context, &cert->ec_algorithm, &buffer[pos], length);
                         else
 #endif
-                            tls_certificate_set_algorithm(&cert->key_algorithm, &buffer[pos], length);
+                            tls_certificate_set_algorithm(context, &cert->key_algorithm, &buffer[pos], length);
                     }
                     if (_is_field(fields, algorithm_id))
-                        tls_certificate_set_algorithm(&cert->algorithm, &buffer[pos], length);
+                        tls_certificate_set_algorithm(context, &cert->algorithm, &buffer[pos], length);
                     
                     DEBUG_PRINT("OBJECT IDENTIFIER(%i): ", length);
                     DEBUG_DUMP_HEX(&buffer[pos], length);
