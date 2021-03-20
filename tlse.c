@@ -1,5 +1,5 @@
 /********************************************************************************
- Copyright (c) 2016-2020, Eduard Suica
+ Copyright (c) 2016-2021, Eduard Suica
  All rights reserved.
  
  Redistribution and use in source and binary forms, with or without modification,
@@ -184,6 +184,14 @@
 #define CHECK_SIZE(size, buf_size, err)  if (((int)(size) > (int)(buf_size)) || ((int)(buf_size) < 0)) return err;
 #define TLS_IMPORT_CHECK_SIZE(buf_pos, size, buf_size) if (((int)size > (int)buf_size - buf_pos) || ((int)buf_pos > (int)buf_size)) { DEBUG_PRINT("IMPORT ELEMENT SIZE ERROR\n"); tls_destroy_context(context); return NULL; }
 #define CHECK_HANDSHAKE_STATE(context, n, limit)  { if (context->hs_messages[n] >= limit) { DEBUG_PRINT("* UNEXPECTED MESSAGE (%i)\n", (int)n); payload_res = TLS_UNEXPECTED_MESSAGE; break; } context->hs_messages[n]++; }
+
+#if CRYPT > 0x0118
+    #define TLS_TOMCRYPT_PRIVATE_DP(key)                ((key).dp)
+    #define TLS_TOMCRYPT_PRIVATE_SET_INDEX(key, k_idx)
+#else
+    #define TLS_TOMCRYPT_PRIVATE_DP(key)                ((key)->dp)
+    #define TLS_TOMCRYPT_PRIVATE_SET_INDEX(key, k_idx)  key->idx = k_idx
+#endif
 
 #ifdef TLS_WITH_CHACHA20_POLY1305
 #define TLS_CHACHA20_IV_LENGTH    12
@@ -1957,10 +1965,10 @@ static int _private_tls_is_point(ecc_key *key) {
     }
     
     /* load prime and b */
-    if ((err = mp_read_radix(prime, key->dp->prime, 16)) != CRYPT_OK) {
+    if ((err = mp_read_radix(prime, TLS_TOMCRYPT_PRIVATE_DP(key)->prime, 16)) != CRYPT_OK) {
         goto error;
     }
-    if ((err = mp_read_radix(b, key->dp->B, 16)) != CRYPT_OK) {
+    if ((err = mp_read_radix(b, TLS_TOMCRYPT_PRIVATE_DP(key)->B, 16)) != CRYPT_OK) {
         goto error;
     }
     
@@ -2051,8 +2059,8 @@ int _private_tls_ecc_import_key(const unsigned char *private_key, int private_le
         return err;
     }
     
-    key->idx = -1;
-    key->dp  = dp;
+    TLS_TOMCRYPT_PRIVATE_SET_INDEX(key, -1);
+    TLS_TOMCRYPT_PRIVATE_DP(key) = dp;
     
     /* set z */
     if ((err = mp_set(key->pubkey.z, 1)) != CRYPT_OK) {
@@ -2237,8 +2245,8 @@ int _private_tls_ecc_import_pk(const unsigned char *public_key, int public_len, 
     }
     
     
-    key->idx = -1;
-    key->dp  = dp;
+    TLS_TOMCRYPT_PRIVATE_SET_INDEX(key, -1);
+    TLS_TOMCRYPT_PRIVATE_DP(key) = dp;
     
     /* set z */
     if ((err = mp_set(key->pubkey.z, 1)) != CRYPT_OK) {
