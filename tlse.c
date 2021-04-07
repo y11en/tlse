@@ -964,7 +964,8 @@ typedef struct {
 } TLSCipher;
 
 typedef struct {
-    hash_state hash;
+    hash_state hash32;
+    hash_state hash48;
 #ifdef TLS_LEGACY_SUPPORT
     hash_state hash2;
 #endif
@@ -4070,25 +4071,21 @@ void _private_tls_create_hash(struct TLSContext *context) {
         int hash_size = _private_tls_mac_length(context);
         if (hash->created) {
             unsigned char temp[TLS_MAX_SHA_SIZE];
-            if (hash_size == TLS_SHA384_MAC_SIZE)
-                sha384_done(&hash->hash, temp);
-            else
-                sha256_done(&hash->hash, temp);
+            sha384_done(&hash->hash32, temp);
+            sha256_done(&hash->hash48, temp);
         }
-        if (hash_size == TLS_SHA384_MAC_SIZE)
-            sha384_init(&hash->hash);
-        else
-            sha256_init(&hash->hash);
+        sha384_init(&hash->hash48);
+        sha256_init(&hash->hash32);
         hash->created = 1;
     } else {
 #ifdef TLS_LEGACY_SUPPORT
         // TLS_V11
         if (hash->created) {
             unsigned char temp[TLS_V11_HASH_SIZE];
-            md5_done(&hash->hash, temp);
+            md5_done(&hash->hash32, temp);
             sha1_done(&hash->hash2, temp);
         }
-        md5_init(&hash->hash);
+        md5_init(&hash->hash32);
         sha1_init(&hash->hash2);
         hash->created = 1;
 #endif
@@ -4114,17 +4111,15 @@ int _private_tls_update_hash(struct TLSContext *context, const unsigned char *in
 #endif
         }
         int hash_size = _private_tls_mac_length(context);
-        if (hash_size == TLS_SHA384_MAC_SIZE) {
-            sha384_process(&hash->hash, in, len);
-        } else {
-            sha256_process(&hash->hash, in, len);
+        sha256_process(&hash->hash32, in, len);
+        sha384_process(&hash->hash48, in, len);
+        if (!hash_size)
             hash_size = TLS_SHA256_MAC_SIZE;
-        }
     } else {
 #ifdef TLS_LEGACY_SUPPORT
         if (!hash->created)
             _private_tls_create_hash(context);
-        md5_process(&hash->hash, in, len);
+        md5_process(&hash->hash32, in, len);
         sha1_process(&hash->hash2, in, len);
 #endif
     }
@@ -4173,10 +4168,12 @@ int _private_tls_done_hash(struct TLSContext *context, unsigned char *hout) {
             hout = temp;
         //TLS_HASH_DONE(&hash->hash, hout);
         hash_size = _private_tls_mac_length(context);
-        if (hash_size == TLS_SHA384_MAC_SIZE)
-            sha384_done(&hash->hash, hout);
-        else {
-            sha256_done(&hash->hash, hout);
+        if (hash_size == TLS_SHA384_MAC_SIZE) {
+            sha256_done(&hash->hash32, temp);
+            sha384_done(&hash->hash48, hout);
+        } else {
+            sha256_done(&hash->hash32, hout);
+            sha384_done(&hash->hash48, temp);
             hash_size = TLS_SHA256_MAC_SIZE;
         }
     } else {
@@ -4185,7 +4182,7 @@ int _private_tls_done_hash(struct TLSContext *context, unsigned char *hout) {
         unsigned char temp[TLS_V11_HASH_SIZE];
         if (!hout)
             hout = temp;
-        md5_done(&hash->hash, hout);
+        md5_done(&hash->hash32, hout);
         sha1_done(&hash->hash2, hout + 16);
         hash_size = TLS_V11_HASH_SIZE;
 #endif
@@ -4226,22 +4223,24 @@ int _private_tls_get_hash(struct TLSContext *context, unsigned char *hout) {
     if ((context->version == TLS_V12) || (context->version == DTLS_V12) || (context->version == TLS_V13) || (context->version == DTLS_V13)) {
         hash_size = _private_tls_mac_length(context);
         hash_state prec;
-        memcpy(&prec, &hash->hash, sizeof(hash_state));
-        if (hash_size == TLS_SHA384_MAC_SIZE)
-            sha384_done(&hash->hash, hout);
-        else {
+        if (hash_size == TLS_SHA384_MAC_SIZE) {
+            memcpy(&prec, &hash->hash48, sizeof(hash_state));
+            sha384_done(&hash->hash48, hout);
+            memcpy(&hash->hash48, &prec, sizeof(hash_state));
+        } else {
+            memcpy(&prec, &hash->hash32, sizeof(hash_state));
             hash_size = TLS_SHA256_MAC_SIZE;
-            sha256_done(&hash->hash, hout);
+            sha256_done(&hash->hash32, hout);
+            memcpy(&hash->hash32, &prec, sizeof(hash_state));
         }
-        memcpy(&hash->hash, &prec, sizeof(hash_state));
     } else {
 #ifdef TLS_LEGACY_SUPPORT
         // TLS_V11
         hash_state prec;
         
-        memcpy(&prec, &hash->hash, sizeof(hash_state));
-        md5_done(&hash->hash, hout);
-        memcpy(&hash->hash, &prec, sizeof(hash_state));
+        memcpy(&prec, &hash->hash32, sizeof(hash_state));
+        md5_done(&hash->hash32, hout);
+        memcpy(&hash->hash32, &prec, sizeof(hash_state));
         
         memcpy(&prec, &hash->hash2, sizeof(hash_state));
         sha1_done(&hash->hash2, hout + 16);
