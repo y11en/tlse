@@ -5481,7 +5481,7 @@ struct TLSPacket *tls_build_hello(struct TLSContext *context, int tls13_downgrad
     if (context->version == DTLS_V13)
         version = DTLS_V12;
 #endif
-    struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, packet_version, 0);
+    struct TLSPacket *packet = tls_create_packet(context, TLS_HANDSHAKE, version, 0);
     if (packet) {
         // hello
         if (context->is_server)
@@ -10184,7 +10184,11 @@ int SSL_CTX_check_private_key(struct TLSContext *context) {
 }
 
 struct TLSContext *SSL_CTX_new(int method) {
+#ifdef WITH_TLS_13
+    return tls_create_context(method, TLS_V13);
+#else
     return tls_create_context(method, TLS_V12);
+#endif
 }
 
 void SSL_free(struct TLSContext *context) {
