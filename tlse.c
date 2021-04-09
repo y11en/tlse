@@ -1312,7 +1312,7 @@ static const unsigned char TLS_RSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0x86, 
 
 // static const unsigned char TLS_ECDSA_SIGN_SHA1_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x01, 0x05, 0x00, 0x00};
 // static const unsigned char TLS_ECDSA_SIGN_SHA224_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x01, 0x05, 0x00, 0x00};
-// static const unsigned char TLS_ECDSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x05, 0x00, 0x00};
+static const unsigned char TLS_ECDSA_SIGN_SHA256_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02, 0x05, 0x00, 0x00};
 // static const unsigned char TLS_ECDSA_SIGN_SHA384_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03, 0x05, 0x00, 0x00};
 // static const unsigned char TLS_ECDSA_SIGN_SHA512_OID[] = {0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04, 0x05, 0x00, 0x00};
 
@@ -3374,6 +3374,9 @@ char *tls_certificate_to_string(struct TLSCertificate *cert, char *buffer, int l
                 case TLS_RSA_SIGN_SHA512:
                     res += snprintf(buffer + res, len - res, "RSA_SIGN_SHA512");
                     break;
+                case TLS_ECDSA_SIGN_SHA256:
+                    res += snprintf(buffer + res, len - res, "ECDSA_SIGN_SHA512");
+                    break;
                 case TLS_EC_PUBLIC_KEY:
                     res += snprintf(buffer + res, len - res, "EC_PUBLIC_KEY");
                     break;
@@ -3549,6 +3552,11 @@ void tls_certificate_set_algorithm(struct TLSContext *context, unsigned int *alg
     
     if (_is_oid(val, TLS_RSA_SIGN_MD5_OID, 9)) {
         *algorithm = TLS_RSA_SIGN_MD5;
+        return;
+    }
+
+    if (_is_oid(val, TLS_ECDSA_SIGN_SHA256_OID, 9)) {
+        *algorithm = TLS_ECDSA_SIGN_SHA256;
         return;
     }
     // client should fail on unsupported signature
@@ -8345,6 +8353,7 @@ int _private_tls_hash_len(int algorithm) {
         case TLS_RSA_SIGN_SHA1:
             return 20;
         case TLS_RSA_SIGN_SHA256:
+        case TLS_ECDSA_SIGN_SHA256:
             return 32;
         case TLS_RSA_SIGN_SHA384:
             return 48;
@@ -8388,6 +8397,7 @@ unsigned char *_private_tls_compute_hash(int algorithm, const unsigned char *mes
             }
             break;
         case TLS_RSA_SIGN_SHA256:
+        case TLS_ECDSA_SIGN_SHA256:
             DEBUG_PRINT("SIGN SHA256\n");
             hash = (unsigned char *)TLS_MALLOC(32);
             if (!hash)
@@ -8451,6 +8461,7 @@ int tls_certificate_verify_signature(struct TLSCertificate *cert, struct TLSCert
             hash_index = find_hash("sha1");
             break;
         case TLS_RSA_SIGN_SHA256:
+        case TLS_ECDSA_SIGN_SHA256:
             hash_index = find_hash("sha256");
             break;
         case TLS_RSA_SIGN_SHA384:
@@ -8463,6 +8474,32 @@ int tls_certificate_verify_signature(struct TLSCertificate *cert, struct TLSCert
             DEBUG_PRINT("UNKNOWN SIGNATURE ALGORITHM\n");
             return 0;
     }
+#ifdef TLS_ECDSA_SUPPORTED
+    if (cert->algorithm == TLS_ECDSA_SIGN_SHA256) {
+        ecc_key key;
+        int err = ecc_import(parent->der_bytes, parent->der_len, &key);
+        if (err) {
+            DEBUG_PRINT("Error importing ECC certificate (code: %i)\n", err);
+            DEBUG_DUMP_HEX_LABEL("CERTIFICATE", parent->der_bytes, parent->der_len);
+            return 0;
+        }
+        int ecc_stat = 0;
+        unsigned char *signature = cert->sign_key;
+        int signature_len = cert->sign_len;
+        if (!signature[0]) {
+            signature++;
+            signature_len--;
+        }
+        err = ecc_verify_hash(signature, signature_len, cert->fingerprint, hash_len, &ecc_stat, &key);
+        ecc_free(&key);
+        if (err) {
+            DEBUG_PRINT("ECC HASH VERIFY ERROR %i\n", err);
+            return 0;
+        }
+        DEBUG_PRINT("ECC CERTIFICATE VALIDATION: %i\n", ecc_stat);
+        return ecc_stat;
+    }
+#endif
     
     rsa_key key;
     int err = rsa_import(parent->der_bytes, parent->der_len, &key);
