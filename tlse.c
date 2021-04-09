@@ -10447,22 +10447,18 @@ int SSL_read(struct TLSContext *context, void *buf, unsigned int len) {
     if (tls_established(context) != 1)
         return TLS_GENERIC_ERROR;
     
-    if (!context->application_buffer_len) {
-        unsigned char client_message[0xFFFF];
-        // accept
-        int read_size;
-        while ((read_size = _private_tls_safe_read(context, (char *)client_message, sizeof(client_message))) > 0) {
-            if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) > 0) {
-                _tls_ssl_private_send_pending(ssl_data->fd, context);
-                break;
-            }
-            if ((context->critical_error) && (!context->application_buffer_len)) {
-                return TLS_GENERIC_ERROR;
-            }
-        }
-        if ((read_size <= 0) && (!context->application_buffer_len))
-            return read_size;
+    unsigned char client_message[0xFFFF];
+    // accept
+    int read_size;
+    while ((!context->application_buffer_len) && ((read_size = _private_tls_safe_read(context, (char *)client_message, sizeof(client_message))) > 0)) {
+        if (tls_consume_stream(context, client_message, read_size, ssl_data->certificate_verify) > 0)
+            _tls_ssl_private_send_pending(ssl_data->fd, context);
+
+        if ((context->critical_error) && (!context->application_buffer_len))
+            return TLS_GENERIC_ERROR;
     }
+    if ((read_size <= 0) && (!context->application_buffer_len))
+        return read_size;
     
     return tls_read(context, (unsigned char *)buf, len);
 }
