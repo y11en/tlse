@@ -6358,7 +6358,7 @@ int _private_tls_parse_key_share(struct TLSContext *context, const unsigned char
         context->premaster_key_len = out_size;
         return 0;
     } else
-    if (dhkey) {
+    if ((dhkey) && (buffer)) {
         _private_tls_dhe_create(context);
         if (!tls_random(context->local_random, TLS_SERVER_RANDOM_SIZE))
             return TLS_GENERIC_ERROR;
