@@ -63,10 +63,11 @@
     #include <sys/types.h>
     #include <sys/socket.h>
     #include <netinet/tcp.h>
-    // should get uapi/linux/tls.h (linux headers)
+    // should get /usr/include/linux/tls.h (linux headers)
     // rename it to ktls.h and add it to your project
-    // or just include tls.h instead of ktls.h
     #include "ktls.h"
+    // or just include tls.h instead of ktls.h
+    // #include "linux/tls.h"
 #endif
 
 #include "tlse.h"
@@ -10020,6 +10021,7 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
         case TLS_DHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
         case TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+        case TLS_AES_128_GCM_SHA256:
             break;
         default:
             DEBUG_PRINT("CIPHER UNSUPPORTED: kTLS SUPPORTS ONLY AES 128 GCM CIPHERS\n");
@@ -10032,15 +10034,22 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     }
     int err;
     struct tls12_crypto_info_aes_gcm_128 crypto_info;
-
-    crypto_info.info.version = TLS_1_2_VERSION;
     crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_128;
- 
     uint64_t local_sequence_number = htonll(context->local_sequence_number);
-    memcpy(crypto_info.iv, &local_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
-    memcpy(crypto_info.rec_seq, &local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
-    memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
-    memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+        crypto_info.info.version = TLS_1_2_VERSION;
+        memcpy(crypto_info.iv, &local_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+        memcpy(crypto_info.rec_seq, &local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+        memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+        memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+    } else if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+        crypto_info.info.version = TLS_1_3_VERSION;
+        memcpy(crypto_info.iv, context->crypto.ctx_local_mac.local_iv + 4, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+        memcpy(crypto_info.rec_seq, &local_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+        memcpy(crypto_info.key, context->exportable_keys, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+        memcpy(crypto_info.salt, context->crypto.ctx_local_mac.local_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+    }
 
     err = setsockopt(socket, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
     if (err)
@@ -10050,14 +10059,23 @@ int tls_make_ktls(struct TLSContext *context, int socket) {
     // kernel 4.17 adds TLS_RX support
     struct tls12_crypto_info_aes_gcm_128 crypto_info_read;
 
-    crypto_info_read.info.version = TLS_1_2_VERSION;
     crypto_info_read.info.cipher_type = TLS_CIPHER_AES_GCM_128;
 
     uint64_t remote_sequence_number = htonll(context->remote_sequence_number);
-    memcpy(crypto_info_read.iv, &remote_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
-    memcpy(crypto_info_read.rec_seq, &remote_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
-    memcpy(crypto_info_read.key, context->exportable_keys + TLS_CIPHER_AES_GCM_128_KEY_SIZE, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
-    memcpy(crypto_info_read.salt, context->crypto.ctx_remote_mac.remote_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+
+    if ((context->version == TLS_V12) || (context->version == DTLS_V12)) {
+        crypto_info_read.info.version = TLS_1_2_VERSION;
+        memcpy(crypto_info_read.iv, &remote_sequence_number, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+        memcpy(crypto_info_read.rec_seq, &remote_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+        memcpy(crypto_info_read.key, context->exportable_keys + TLS_CIPHER_AES_GCM_128_KEY_SIZE, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+        memcpy(crypto_info_read.salt, context->crypto.ctx_remote_mac.remote_aead_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+    } else if ((context->version == TLS_V13) || (context->version == DTLS_V13)) {
+        crypto_info_read.info.version = TLS_1_3_VERSION;
+        memcpy(crypto_info_read.iv, context->crypto.ctx_remote_mac.remote_iv + 4, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+        memcpy(crypto_info_read.rec_seq, &remote_sequence_number, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+        memcpy(crypto_info_read.key, context->exportable_keys + TLS_CIPHER_AES_GCM_128_KEY_SIZE, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+        memcpy(crypto_info_read.salt, context->crypto.ctx_remote_mac.remote_iv, TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+    }
 
     err = setsockopt(socket, SOL_TLS, TLS_RX, &crypto_info_read, sizeof(crypto_info_read));
     if (err)
